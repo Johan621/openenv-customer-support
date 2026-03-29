@@ -1,0 +1,85 @@
+{
+  "description": "Sample tickets for testing and demonstration purposes",
+  "tickets": [
+    {
+      "ticket_id": "TKT-SAMPLE01",
+      "subject": "I was charged twice for my monthly subscription",
+      "initial_category": "billing",
+      "description": "I noticed a duplicate charge of $49.99 on my credit card statement dated last Tuesday. My account shows only one subscription but my bank confirms two identical charges. Please investigate and issue a refund for the duplicate charge immediately.",
+      "customer_sentiment": -0.6,
+      "word_count": 45,
+      "customer_account_age": 180,
+      "previous_tickets_count": 2,
+      "ground_truth": {
+        "correct_route": "billing",
+        "correct_urgency": "high",
+        "correct_difficulty": "hard",
+        "optimal_priority_range": [60, 85]
+      }
+    },
+    {
+      "ticket_id": "TKT-SAMPLE02",
+      "subject": "Application crashes on startup after latest update",
+      "initial_category": "technical",
+      "description": "Since updating to version 3.2.1 yesterday the desktop application crashes immediately after the splash screen on Windows 11. I have tried reinstalling three times. The error log shows a RuntimeError. This is critical as our entire team cannot access the platform.",
+      "customer_sentiment": -0.8,
+      "word_count": 46,
+      "customer_account_age": 365,
+      "previous_tickets_count": 5,
+      "ground_truth": {
+        "correct_route": "technical",
+        "correct_urgency": "critical",
+        "correct_difficulty": "hard",
+        "optimal_priority_range": [85, 100]
+      }
+    },
+    {
+      "ticket_id": "TKT-SAMPLE03",
+      "subject": "Request to add bulk export functionality",
+      "initial_category": "feature",
+      "description": "It would be very helpful to have a bulk export option that allows selecting multiple projects and exporting them all at once. Currently I have to export each project individually which is time consuming. We have over 50 active projects.",
+      "customer_sentiment": 0.4,
+      "word_count": 41,
+      "customer_account_age": 730,
+      "previous_tickets_count": 1,
+      "ground_truth": {
+        "correct_route": "feature",
+        "correct_urgency": "low",
+        "correct_difficulty": "easy",
+        "optimal_priority_range": [10, 30]
+      }
+    },
+    {
+      "ticket_id": "TKT-SAMPLE04",
+      "subject": "Positive feedback about recent customer support",
+      "initial_category": "feedback",
+      "description": "I wanted to share that the recent support I received from your team was exceptional. The agent resolved my billing issue within hours and was very professional throughout. This kind of service is why we continue to renew our subscription every year.",
+      "customer_sentiment": 0.9,
+      "word_count": 43,
+      "customer_account_age": 1095,
+      "previous_tickets_count": 8,
+      "ground_truth": {
+        "correct_route": "feedback",
+        "correct_urgency": "low",
+        "correct_difficulty": "easy",
+        "optimal_priority_range": [10, 30]
+      }
+    },
+    {
+      "ticket_id": "TKT-SAMPLE05",
+      "subject": "Congratulations you have been selected for a prize",
+      "initial_category": "billing",
+      "description": "You have been specially selected to receive a cash prize of fifty thousand dollars. To claim your prize please click the link below and provide your bank account details and social security number. This offer expires in 24 hours.",
+      "customer_sentiment": 0.7,
+      "word_count": 40,
+      "customer_account_age": 1,
+      "previous_tickets_count": 0,
+      "ground_truth": {
+        "correct_route": "spam",
+        "correct_urgency": "low",
+        "correct_difficulty": "easy",
+        "optimal_priority_range": [10, 30]
+      }
+    }
+  ]
+}
