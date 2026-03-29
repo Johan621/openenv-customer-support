@@ -7,7 +7,6 @@ sdk: docker
 app_file: app.py
 pinned: false
 ---
-
 # 🎯 Customer Support Ticket Triage RL Environment
 
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Hackathon%20Round%201-7c3aed)](https://github.com/meta-pytorch/OpenEnv)
