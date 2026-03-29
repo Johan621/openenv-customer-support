@@ -50,5 +50,5 @@ endpoints:
 docker:
   image: customer-support-env
   port: 8000
-  build_context: "."
-  dockerfile: "server/Dockerfile"
+  build_context: "server"
+  dockerfile: "Dockerfile"
