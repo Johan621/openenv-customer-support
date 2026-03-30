@@ -332,16 +332,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 7860))
     host = os.environ.get("HOST", "0.0.0.0")
-    print(f"Starting server on {host}:{port}...", flush=True)
-    uvicorn.run(
-        "server.app:app",
-        host=host,
-        port=port,
-        reload=False,
-        log_level="info"
-    )
+    uvicorn.run("server.app:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":
