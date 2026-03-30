@@ -54,7 +54,7 @@ class CustomerSupportEnv:
 
     def __init__(self) -> None:
         self.session_id: str = str(uuid.uuid4())
-        self._generator = TicketGenerator()
+        self._generator: Optional[TicketGenerator] = None
 
         # Episode state
         self._difficulty: str = "easy"
@@ -67,6 +67,15 @@ class CustomerSupportEnv:
         # Stats
         self._episode_stats: EpisodeStats = EpisodeStats()
         self._all_correct_this_episode: bool = True
+
+    # ------------------------------------------------------------------
+    # Lazy load helper
+    # ------------------------------------------------------------------
+
+    def _get_generator(self) -> TicketGenerator:
+        if self._generator is None:
+            self._generator = TicketGenerator()
+        return self._generator
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,7 +96,7 @@ class CustomerSupportEnv:
         self._all_correct_this_episode = True
         self._episode_count += 1
 
-        episode = self._generator.generate_episode(difficulty, seed=seed)
+        episode = self._get_generator().generate_episode(difficulty, seed=seed)
         self._tickets = [t for t, _ in episode]
         self._ground_truths = [gt for _, gt in episode]
 
