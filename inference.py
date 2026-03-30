@@ -1,5 +1,10 @@
 """
 Customer Support Triage RL - Inference Script
+
+MANDATORY ENV VARS (per hackathon validator):
+- API_BASE_URL : OpenAI-compatible endpoint (e.g. https://api-inference.huggingface.co/openai/v1)
+- MODEL_NAME   : Model identifier
+- HF_TOKEN     : API key (also accepts API_KEY for compatibility)
 """
 
 import os
@@ -7,21 +12,45 @@ import json
 import time
 import requests
 
-# Configuration
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/openai/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-2-7b-chat-hf")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space")
+from openai import OpenAI
 
-MAX_STEPS_PER_EPISODE = 15
-TEMPERATURE = 0.7
-MAX_TOKENS = 150
+# ----------------------------
+# Mandatory env vars
+# ----------------------------
+API_BASE_URL = os.getenv("API_BASE_URL")
+MODEL_NAME = os.getenv("MODEL_NAME")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+
+if not API_BASE_URL:
+    # safe default; validator may provide its own
+    API_BASE_URL = "https://api-inference.huggingface.co/openai/v1"
+    print(f"⚠️  API_BASE_URL not set. Defaulting to {API_BASE_URL}")
+
+if not MODEL_NAME:
+    MODEL_NAME = "meta-llama/Llama-2-7b-chat-hf"
+    print(f"⚠️  MODEL_NAME not set. Defaulting to {MODEL_NAME}")
+
+if not API_KEY:
+    print("❌ HF_TOKEN (or API_KEY) is not set. Cannot run inference.")
+    raise SystemExit(2)
+
+# ----------------------------
+# Environment base URL
+# ----------------------------
+# Not listed as mandatory in the portal, so we keep a default.
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space").rstrip("/")
+
+# Runtime controls (keep small for <20 min)
+MAX_STEPS_PER_EPISODE = int(os.getenv("MAX_STEPS_PER_EPISODE", "15"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "150"))
 DIFFICULTIES = ["easy", "medium", "hard"]
 
-print(f"🚀 Inference Configuration:")
-print(f"  - HF Token: {'✅ Set' if HF_TOKEN else '❌ Missing'}")
-print(f"  - Model: {MODEL_NAME}")
-print(f"  - Environment URL: {ENV_BASE_URL}")
+print("🚀 Inference Configuration:")
+print(f"  - API_BASE_URL: {API_BASE_URL}")
+print(f"  - MODEL_NAME:   {MODEL_NAME}")
+print(f"  - ENV_BASE_URL: {ENV_BASE_URL}")
+print(f"  - API_KEY:      {'✅ Set' if API_KEY else '❌ Missing'}")
 
 SYSTEM_PROMPT = """You are an expert customer support triage agent.
 Analyze the support ticket and decide:
@@ -31,35 +60,38 @@ Analyze the support ticket and decide:
 4. priority_score: A number between 0-100
 
 Respond in JSON format only:
-{"route_category": "...", "urgency_assessment": "...", "resolution_difficulty": "...", "priority_score": <number>}"""
+{"route_category": "...", "urgency_assessment": "...", "resolution_difficulty": "...", "priority_score": 50}
+"""
+
+FALLBACK_ACTION = {
+    "route_category": "technical",
+    "urgency_assessment": "medium",
+    "resolution_difficulty": "medium",
+    "priority_score": 50,
+}
 
 
 def call_env_endpoint(endpoint, method="GET", data=None):
-    """Call the environment API endpoint."""
     url = f"{ENV_BASE_URL}{endpoint}"
     try:
         if method == "POST":
-            response = requests.post(url, json=data, timeout=10)
+            response = requests.post(url, json=data, timeout=15)
         else:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=15)
         response.raise_for_status()
         return response.json()
     except Exception as e:
         print(f"❌ Error calling {endpoint}: {e}")
-        return {}
+        return None
 
 
-def generate_triage_action(observation, client):
-    """Use LLM to generate triage action."""
-    ticket = observation.get("ticket_info") or {}
-    ticket_desc = f"""
-Ticket: {ticket.get('subject', 'N/A')}
-Body: {ticket.get('description', 'N/A')}
-"""
+def generate_triage_action(observation, client: OpenAI):
+    ticket = (observation or {}).get("ticket_info") or {}
+    ticket_desc = f"Ticket: {ticket.get('subject','N/A')}\nBody: {ticket.get('description','N/A')}\n"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Triage: {ticket_desc}"}
+        {"role": "user", "content": f"Triage:\n{ticket_desc}"},
     ]
 
     try:
@@ -70,114 +102,79 @@ Body: {ticket.get('description', 'N/A')}
             max_tokens=MAX_TOKENS,
         )
         response_text = completion.choices[0].message.content or ""
-
         try:
             action = json.loads(response_text)
+            # minimal sanity
+            if not isinstance(action, dict):
+                return FALLBACK_ACTION
+            action.setdefault("priority_score", 50)
+            return action
         except Exception:
-            action = {
-                "route_category": "technical",
-                "urgency_assessment": "medium",
-                "resolution_difficulty": "medium",
-                "priority_score": 50,
-            }
-
-        return action
+            return FALLBACK_ACTION
     except Exception as e:
         print(f"❌ LLM Error: {e}")
-        return {
-            "route_category": "technical",
-            "urgency_assessment": "medium",
-            "resolution_difficulty": "medium",
-            "priority_score": 50,
-        }
+        return FALLBACK_ACTION
 
 
-def run_episode(difficulty, client):
-    """Run a single episode."""
+def run_episode(difficulty, client: OpenAI):
     print(f"\n🎮 Running episode: {difficulty.upper()}")
 
-    reset_response = call_env_endpoint("/reset", "POST", {"difficulty": difficulty})
+    reset_response = call_env_endpoint("/reset", "POST", {"difficulty": difficulty, "seed": 42})
     if not reset_response:
-        print(f"❌ Failed to reset")
-        return {"difficulty": difficulty, "success": False, "score": 0.0}
+        return {"difficulty": difficulty, "success": False, "score": 0.0, "total_reward": 0.0}
 
     observation = reset_response
     total_reward = 0.0
+    steps_taken = 0
 
     for step in range(1, MAX_STEPS_PER_EPISODE + 1):
-        print(f"  Step {step}")
-
+        steps_taken = step
         action = generate_triage_action(observation, client)
-        print(f"    Action: {action}")
 
         step_response = call_env_endpoint("/step", "POST", {"action": action})
         if not step_response:
             break
 
         observation = step_response
-        reward = observation.get("reward", 0.0)
+        reward = float(observation.get("reward", 0.0) or 0.0)
         total_reward += reward
 
-        print(f"    Reward: +{reward:.3f}")
-
         if observation.get("done"):
-            print(f"    ✅ Done!")
             break
 
-        time.sleep(0.5)
+        time.sleep(0.2)
 
-    score = min(1.0, max(0.0, total_reward))
-
-    print(f"  📊 Score: {score:.3f}")
+    # score must be in 0..1 range
+    score = max(0.0, min(1.0, float(total_reward)))
 
     return {
         "difficulty": difficulty,
         "success": True,
         "score": score,
-        "total_reward": total_reward
+        "total_reward": float(total_reward),
+        "steps_taken": steps_taken,
     }
 
 
 def main():
-    if not HF_TOKEN:
-        print("❌ HF_TOKEN environment variable is not set. Cannot run inference.")
-        print("   Set HF_TOKEN to your HuggingFace API token and retry.")
-        return
-
-    from openai import OpenAI
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-
-    print("\n" + "="*60)
-    print("🚀 CUSTOMER SUPPORT TRIAGE - INFERENCE")
-    print("="*60)
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     results = []
     for difficulty in DIFFICULTIES:
-        result = run_episode(difficulty, client)
-        results.append(result)
-        time.sleep(1)
+        results.append(run_episode(difficulty, client))
+        time.sleep(0.5)
 
-    print("\n" + "="*60)
-    print("📈 RESULTS")
-    print("="*60)
-
-    successful_count = sum(1 for r in results if r["success"])
-    total_score = 0.0
-    for result in results:
-        if result["success"]:
-            print(f"  {result['difficulty'].upper():10} | Score: {result['score']:.3f} ✅")
-            total_score += result['score']
-
-    if successful_count:
-        avg_score = total_score / successful_count
-        print(f"\n  Average Score: {avg_score:.3f}")
-    else:
-        print("\n  No successful episodes.")
-
-    with open("inference_results.json", "w") as f:
+    # Always write outputs (validator-friendly)
+    with open("inference_results.json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
 
-    print("\n✅ Results saved!")
+    # Also write a simple scores.json (extra safe)
+    scores = {r["difficulty"]: float(r.get("score", 0.0)) for r in results}
+    with open("scores.json", "w", encoding="utf-8") as f:
+        json.dump(scores, f, indent=2)
+
+    print("\n✅ Saved inference_results.json and scores.json")
+    print("Scores:", scores)
 
 
 if __name__ == "__main__":
