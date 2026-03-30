@@ -1,0 +1,54 @@
+name: customer-support-triage
+version: "0.1.0"
+description: >
+  Real-world customer support ticket triage RL environment.
+  An AI agent learns to classify, prioritize, and route support
+  tickets across billing, technical, feature, feedback, and spam
+  categories with meaningful reward shaping and partial progress signals.
+author: Johan621
+license: BSD-3-Clause
+tags:
+  - openenv
+  - reinforcement-learning
+  - customer-support
+  - nlp
+  - triage
+  - real-world
+
+environment:
+  type: text
+  action_space: discrete+continuous
+  observation_space: structured
+  reward_type: dense
+  episode_termination: fixed_steps
+
+difficulty_levels:
+  - name: easy
+    description: "5 tickets per episode, clear categories, positive sentiment"
+    target_score: 0.85
+    tickets_per_episode: 5
+  - name: medium
+    description: "10 tickets per episode, mixed categories, neutral sentiment"
+    target_score: 0.70
+    tickets_per_episode: 10
+  - name: hard
+    description: "15 tickets per episode, ambiguous categories, edge cases"
+    target_score: 0.50
+    tickets_per_episode: 15
+
+endpoints:
+  http:
+    reset: POST /reset
+    step: POST /step
+    state: GET /state
+    health: GET /health
+    docs: GET /docs
+    web: GET /web
+  websocket:
+    session: WS /ws/{session_id}
+
+docker:
+  image: customer-support-env
+  port: 8000
+  build_context: "server"
+  dockerfile: "server/Dockerfile"
