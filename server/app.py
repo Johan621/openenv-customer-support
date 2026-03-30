@@ -68,7 +68,9 @@ _default_env = None
 def get_default_env():
     global _default_env
     if _default_env is None:
+        logger.info("Initializing default environment...")
         _default_env = CustomerSupportEnv()
+        logger.info("Environment initialized successfully!")
     return _default_env
 
 # ---------------------------------------------------------------------------
@@ -78,6 +80,7 @@ def get_default_env():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Customer Support Triage environment starting up...")
+    # Don't initialize here - lazy load on first request
     yield
     logger.info("Shutting down environment server.")
 
