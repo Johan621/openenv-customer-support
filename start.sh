@@ -7,7 +7,12 @@ echo "=========================================="
 echo ""
 echo "Starting FastAPI server..."
 
-python -m uvicorn server.app:app --host 0.0.0.0 --port 8000
+# Start uvicorn in background
+python -m uvicorn server.app:app --host 0.0.0.0 --port 8000 &
+UVICORN_PID=$!
+
+echo "FastAPI server started (PID: $UVICORN_PID)"
+sleep 2
 
 # Run inference if HF_TOKEN is set
 if [ -n "$HF_TOKEN" ]; then
@@ -22,3 +27,6 @@ else
     echo ""
     echo "ℹ️  HF_TOKEN not set - skipping inference script"
 fi
+
+# Keep script alive
+wait $UVICORN_PID
