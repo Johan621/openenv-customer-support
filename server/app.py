@@ -17,9 +17,14 @@ import json
 import logging
 import os
 import sys
+import io
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+
+# Force stdout/stderr buffering off for HF Spaces
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -329,7 +334,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
 def main() -> None:
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
-    uvicorn.run("server.app:app", host=host, port=port, reload=False)
+    print(f"Starting server on {host}:{port}...", flush=True)
+    uvicorn.run(
+        "server.app:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level="info"
+    )
 
 
 if __name__ == "__main__":
