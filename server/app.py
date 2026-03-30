@@ -253,7 +253,10 @@ def web_interface() -> HTMLResponse:
     """Web interface for the environment."""
     return HTMLResponse(content=_WEB_HTML)
 
-
+@app.get("/", response_class=HTMLResponse, tags=["System"])
+def root() -> HTMLResponse:
+    """Root endpoint - redirect to web interface."""
+    return HTMLResponse(content=_WEB_HTML)
 # ---------------------------------------------------------------------------
 # WebSocket endpoint
 # ---------------------------------------------------------------------------
