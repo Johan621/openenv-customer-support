@@ -105,6 +105,7 @@ app = FastAPI(
 @app.get("/health", tags=["System"])
 def health_check() -> dict[str, str]:
     """Health check endpoint for Docker and load balancers."""
+    # NEVER touch the environment here! Just return immediately!
     return {"status": "ok", "environment": "customer-support-triage", "version": "0.1.0"}
 
 
