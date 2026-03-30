@@ -63,8 +63,13 @@ def _get_or_create_env(session_id: str) -> CustomerSupportEnv:
 # Default global environment (for single-client usage)
 # ---------------------------------------------------------------------------
 
-_default_env = CustomerSupportEnv()
+_default_env = None
 
+def get_default_env():
+    global _default_env
+    if _default_env is None:
+        _default_env = CustomerSupportEnv()
+    return _default_env
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -112,7 +117,7 @@ def reset_episode(request: ResetRequest) -> TriageObservation:
     - **seed**: optional integer for reproducibility
     """
     try:
-        obs = _default_env.reset(difficulty=request.difficulty, seed=request.seed)
+        obs = get_default_env().reset(difficulty=request.difficulty, seed=request.seed)
         return obs
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -126,7 +131,7 @@ def step_environment(request: StepRequest) -> TriageObservation:
     Returns the next observation, reward, and done flag.
     """
     try:
-        obs = _default_env.step(request.action)
+        obs = get_default_env().step(request.action)
         return obs
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -135,7 +140,7 @@ def step_environment(request: StepRequest) -> TriageObservation:
 @app.get("/state", response_model=EnvironmentState, tags=["Environment"])
 def get_state() -> EnvironmentState:
     """Get a snapshot of the current environment state."""
-    return _default_env.state()
+    return get_default_env().state()
 
 
 # ---------------------------------------------------------------------------
