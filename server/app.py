@@ -105,7 +105,6 @@ app = FastAPI(
 @app.get("/health", tags=["System"])
 def health_check() -> dict[str, str]:
     """Health check endpoint for Docker and load balancers."""
-    # NEVER touch the environment here! Just return immediately!
     return {"status": "ok", "environment": "customer-support-triage", "version": "0.1.0"}
 
 
@@ -253,10 +252,13 @@ def web_interface() -> HTMLResponse:
     """Web interface for the environment."""
     return HTMLResponse(content=_WEB_HTML)
 
+
 @app.get("/", response_class=HTMLResponse, tags=["System"])
 def root() -> HTMLResponse:
-    """Root endpoint - redirect to web interface."""
+    """Root endpoint - shows web interface."""
     return HTMLResponse(content=_WEB_HTML)
+
+
 # ---------------------------------------------------------------------------
 # WebSocket endpoint
 # ---------------------------------------------------------------------------
