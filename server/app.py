@@ -27,7 +27,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_bufferin
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
 # Allow imports from repo root when running as server/app.py
@@ -117,7 +117,7 @@ def health_check() -> dict[str, str]:
 
 
 @app.post("/reset", response_model=TriageObservation, tags=["Environment"])
-def reset_episode(request: ResetRequest) -> TriageObservation:
+def reset_episode(request: ResetRequest = Body(default_factory=ResetRequest)) -> TriageObservation:
     """
     Start a new episode.
 
