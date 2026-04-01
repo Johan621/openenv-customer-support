@@ -1,0 +1,14 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv / local envs
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
