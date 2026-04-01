@@ -143,8 +143,8 @@ Suggested baselines:
 2) **Random baseline**
    - Sample each enum uniformly, and sample `priority_score` uniformly from [0, 100]
 3) **Simple keyword heuristic**
-   - Route using keywords (e.g., “refund/invoice” → billing, “error/crash/login” → technical)
-   - Map urgency keywords (“urgent/asap/outage”) → high/critical
+   - Route using keywords (e.g., “refund/invoice�' → billing, “error/crash/login�' → technical)
+   - Map urgency keywords (“urgent/asap/outage�') → high/critical
    - Use higher `priority_score` for high/critical
 
 How to record baseline scores (recommended/reproducible):
