@@ -41,7 +41,7 @@ dev = [
 ]
 
 [project.scripts]
-start-env = "server.app:main"
+server = "server.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
