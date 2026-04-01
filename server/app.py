@@ -110,10 +110,9 @@ app = FastAPI(
 # HTTP Endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/health", tags=["System"])
-def health_check() -> dict[str, str]:
-    """Health check endpoint for Docker and load balancers."""
-    return {"status": "ok", "environment": "customer-support-triage", "version": "0.1.0"}
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 @app.post("/reset", response_model=TriageObservation, tags=["Environment"])
