@@ -97,9 +97,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Customer Support Triage RL Environment",
     description=(
-        "Real-world customer support ticket triage environment for the "
-        "Meta-PyTorch-HuggingFace OpenEnv Hackathon Round 1. "
-        "The agent learns to classify, prioritize, and route support tickets."
+        "Real-world customer support ticket triage environment. "
+        "An agent learns to classify, prioritize, and route support tickets."
     ),
     version="0.1.0",
     lifespan=lifespan,
@@ -116,7 +115,7 @@ async def health():
 
 
 @app.post("/reset", response_model=TriageObservation, tags=["Environment"])
-def reset_episode(request: ResetRequest = Body(default_factory=ResetRequest)) -> TriageObservation:
+async def reset_episode(request: ResetRequest = Body(default_factory=ResetRequest)) -> TriageObservation:
     """
     Start a new episode.
 
@@ -131,7 +130,7 @@ def reset_episode(request: ResetRequest = Body(default_factory=ResetRequest)) ->
 
 
 @app.post("/step", response_model=TriageObservation, tags=["Environment"])
-def step_environment(request: StepRequest) -> TriageObservation:
+async def step_environment(request: StepRequest) -> TriageObservation:
     """
     Submit a triage action for the current ticket.
 
@@ -145,7 +144,7 @@ def step_environment(request: StepRequest) -> TriageObservation:
 
 
 @app.get("/state", response_model=EnvironmentState, tags=["Environment"])
-def get_state() -> EnvironmentState:
+async def get_state() -> EnvironmentState:
     """Get a snapshot of the current environment state."""
     return get_default_env().state()
 
@@ -192,10 +191,8 @@ _WEB_HTML = """
 <body>
 <div class="hero">
   <h1>🎯 Customer Support Triage RL</h1>
-  <p>Real-world reinforcement learning environment for the
-     Meta-PyTorch-HuggingFace OpenEnv Hackathon Round 1.
+  <p>Real-world reinforcement learning environment for customer support ticket triage.
      Train AI agents to classify, prioritize, and route support tickets.</p>
-  <span class="badge">🏆 OpenEnv Hackathon</span>
   <span class="badge">🤖 Reinforcement Learning</span>
   <span class="badge">📩 Real-World Task</span>
 </div>
@@ -248,20 +245,20 @@ _WEB_HTML = """
        for perfect episode.</p>
   </div>
 </div>
-<footer>Customer Support Triage RL Environment v0.1.0 · OpenEnv Hackathon Round 1</footer>
+<footer>Customer Support Triage RL Environment v0.1.0</footer>
 </body>
 </html>
 """
 
 
 @app.get("/web", response_class=HTMLResponse, tags=["System"])
-def web_interface() -> HTMLResponse:
+async def web_interface() -> HTMLResponse:
     """Web interface for the environment."""
     return HTMLResponse(content=_WEB_HTML)
 
 
 @app.get("/", response_class=HTMLResponse, tags=["System"])
-def root() -> HTMLResponse:
+async def root() -> HTMLResponse:
     """Root endpoint - shows web interface."""
     return HTMLResponse(content=_WEB_HTML)
 
