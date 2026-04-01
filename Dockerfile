@@ -1,14 +1,15 @@
 FROM python:3.10-slim
 
 WORKDIR /app
-ENV PYTHONUNBUFFERED=1
 
-COPY pyproject.toml /app/pyproject.toml
-
-RUN pip install --no-cache-dir -U pip setuptools wheel && \
-    pip install --no-cache-dir -e .
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_PROGRESS_BAR=off
 
 COPY . /app
+
+RUN python -m pip install -e .
 
 EXPOSE 7860
 
