@@ -51,4 +51,4 @@ docker:
   image: customer-support-env
   port: 8000
   build_context: "server"
-  dockerfile: "server/Dockerfile"
+  dockerfile: "Dockerfile"
