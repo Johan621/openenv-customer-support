@@ -49,6 +49,6 @@ endpoints:
 
 docker:
   image: customer-support-env
-  port: 8000
-  build_context: "server"
+  port: 7860
+  build_context: "."
   dockerfile: "Dockerfile"
