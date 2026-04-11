@@ -29,7 +29,7 @@ This environment simulates a realistic customer-support triage workflow. On each
 - **route** the ticket to the correct department,
 - **assess urgency**,
 - **predict resolution difficulty**,
-- assign a **priority score (0Ã¢â‚¬â€œ100)**.
+- assign a **priority score (0–100)**.
 
 Motivation: In real support systems, correct routing and prioritization reduces time-to-resolution, prevents escalations, and improves customer experience. This environment provides a structured RL-style interface (`reset`, `step`, `state`) to train and evaluate such policies.
 
@@ -37,10 +37,10 @@ Motivation: In real support systems, correct routing and prioritization reduces 
 
 Each episode consists of multiple support tickets. For each ticket, the agent must output:
 
-1) `route_category` (department)
-2) `urgency_assessment` (urgency level)
-3) `resolution_difficulty` (difficulty estimate)
-4) `priority_score` (0Ã¢â‚¬â€œ100)
+1) `route_category` (department)  
+2) `urgency_assessment` (urgency level)  
+3) `resolution_difficulty` (difficulty estimate)  
+4) `priority_score` (0–100)
 
 Difficulty is selected at reset time:
 - **easy**: clearer language, fewer ambiguous cases
@@ -89,14 +89,14 @@ It includes (high-level):
 Base URL (deployed): `https://johan45-openenv-customer-support.hf.space`
 
 System:
-- `GET /health` Ã¢â‚¬â€� health check for Docker/load balancers
-- `GET /` Ã¢â‚¬â€� root
-- `GET /web` Ã¢â‚¬â€� web interface (if enabled)
+- `GET /health` — health check for Docker/load balancers
+- `GET /` — root
+- `GET /web` — web interface (if enabled)
 
 Environment:
-- `POST /reset` Ã¢â‚¬â€� start a new episode (difficulty/seed)
-- `POST /step` Ã¢â‚¬â€� take an action for the current ticket
-- `GET /state` Ã¢â‚¬â€� get current state (includes `current_ticket`)
+- `POST /reset` — start a new episode (difficulty/seed)
+- `POST /step` — take an action for the current ticket
+- `GET /state` — get current state (includes `current_ticket`)
 
 Interactive docs:
 - `GET /docs`
@@ -149,8 +149,8 @@ Suggested baselines:
 2) **Random baseline**
    - Sample each enum uniformly, and sample `priority_score` uniformly from [0, 100]
 3) **Simple keyword heuristic**
-   - Route using keywords (e.g., Ã¢â‚¬Å“refund/invoiceÃ¢â‚¬' Ã¢â€ â€™ billing, Ã¢â‚¬Å“error/crash/loginÃ¢â‚¬' Ã¢â€ â€™ technical)
-   - Map urgency keywords (Ã¢â‚¬Å“urgent/asap/outageÃ¢â‚¬') Ã¢â€ â€™ high/critical
+   - Route using keywords (e.g., "refund/invoice" -> billing, "error/crash/login" -> technical)
+   - Map urgency keywords ("urgent/asap/outage") -> high/critical
    - Use higher `priority_score` for high/critical
 
 How to record baseline scores (recommended/reproducible):
@@ -160,12 +160,20 @@ How to record baseline scores (recommended/reproducible):
 
 > Note: Exact numeric baseline reward depends on ticket stream and difficulty. Use a fixed `seed` to make runs reproducible.
 
+## Baseline inference script (included)
+
+Run the included baseline agent (no LLM required):
+
+```bash
+python scripts/baseline_inference.py --difficulties easy medium hard --episodes 3 --seed 42
+```
+
 ## What was updated to make everything work
 
 ### 1) Docker build fixes
 The Docker image build was stabilized by:
 - copying the full project into the image before running `pip install -e .`
-- disabling pipÃ¢â‚¬â„¢s progress bar inside the container to avoid thread-related build failures on some systems
+- disabling pip's progress bar inside the container to avoid thread-related build failures on some systems
 - simplifying the install step so the build is repeatable
 
 ### 2) OpenEnv validation requirements
@@ -190,10 +198,10 @@ If your repository includes the validator script, you can also run:
 
 ## Project layout (high level)
 
-- `server/` Ã¢â‚¬â€� FastAPI application and environment entry points
-- `Dockerfile` Ã¢â‚¬â€� container build used for deployment
-- `pyproject.toml` Ã¢â‚¬â€� Python package metadata + dependencies
-- `uv.lock` Ã¢â‚¬â€� locked dependency set used by validation
+- `server/` — FastAPI application and environment entry points
+- `Dockerfile` — container build used for deployment
+- `pyproject.toml` — Python package metadata + dependencies
+- `uv.lock` — locked dependency set used by validation
 
 ## Do we need `requirements.txt`?
 
