@@ -41,7 +41,7 @@ EPISODE_BONUS = 0.40
 URGENCY_ORDER = ["low", "medium", "high", "critical"]
 DIFFICULTY_ORDER = ["easy", "medium", "hard"]
 
-# Small epsilon to keep "score-like" values strictly inside (0, 1)
+# Keep all score-like values strictly inside (0, 1)
 EPS = 1e-6
 
 
@@ -115,15 +115,13 @@ class CustomerSupportEnv:
         self._ground_truths = [gt for _, gt in episode]
 
         n = len(self._tickets)
-
-        # IMPORTANT: keep score-like values strictly in (0, 1)
         self._episode_stats = EpisodeStats(
             total_tickets=n,
             processed_tickets=0,
             correct_routes=0,
             avg_correctness=EPS,
             avg_efficiency=EPS,
-            total_reward=EPS,  # was 0.0 (can fail strict validator)
+            total_reward=EPS,  # CRITICAL: must not be 0.0
         )
 
         logger.info(
@@ -168,8 +166,11 @@ class CustomerSupportEnv:
         # ---- Update episode stats ----
         processed = current_idx + 1
         stats = self._episode_stats
-        total_corr = stats.avg_correctness * current_idx + correctness
-        total_eff = stats.avg_efficiency * current_idx + efficiency
+
+        # NOTE: stats.avg_* are clamped (0,1), but we use them as running averages.
+        # Recompute running averages and then clamp again for validator safety.
+        total_corr = float(stats.avg_correctness) * current_idx + float(correctness)
+        total_eff = float(stats.avg_efficiency) * current_idx + float(efficiency)
 
         if not was_correct:
             self._all_correct_this_episode = False
@@ -177,11 +178,11 @@ class CustomerSupportEnv:
         stats.processed_tickets = processed
         stats.avg_correctness = total_corr / processed
         stats.avg_efficiency = total_eff / processed
-        stats.total_reward += reward
+        stats.total_reward += float(reward)
         if action.route_category == gt.correct_route:
             stats.correct_routes += 1
 
-        # Clamp episode-level score fields into (0,1) (validator safety)
+        # Clamp episode-level "score-like" values (validator safety)
         stats.avg_correctness = clamp_open01(float(stats.avg_correctness))
         stats.avg_efficiency = clamp_open01(float(stats.avg_efficiency))
         stats.total_reward = clamp_open01(float(stats.total_reward))
@@ -200,7 +201,6 @@ class CustomerSupportEnv:
             episode_bonus = EPISODE_BONUS
             reward += episode_bonus
             stats.total_reward += episode_bonus
-            # Clamp again after bonus
             stats.total_reward = clamp_open01(float(stats.total_reward))
 
         self._done = episode_done
@@ -223,13 +223,11 @@ class CustomerSupportEnv:
             reward,
         )
 
-        # Clamp score-like fields to (0,1) for validator
+        # Clamp returned per-step scores to (0,1)
         safe_correctness = clamp_open01(float(correctness))
         safe_efficiency = clamp_open01(float(efficiency))
         safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
-
-        # Reward must be strictly (0,1) too (validator safety)
-        reward = clamp_open01(float(reward))
+        safe_reward = clamp_open01(float(reward))
 
         return TriageObservation(
             ticket_info=next_ticket,
@@ -239,12 +237,12 @@ class CustomerSupportEnv:
             difficulty_level=self._difficulty,  # type: ignore[arg-type]
             episode_stats=stats.model_copy(),
             done=episode_done,
-            reward=round(reward, 6),
+            reward=round(safe_reward, 6),
             metadata={
                 "step_count": self._step_index,
                 "episode_count": self._episode_count,
                 "session_id": self.session_id,
-                "episode_bonus": round(episode_bonus, 4),
+                "episode_bonus": round(episode_bonus, 6),
                 "processed_ticket_id": ticket.ticket_id,
                 "correct_route": gt.correct_route,
                 "correct_urgency": gt.correct_urgency,
@@ -279,11 +277,6 @@ class CustomerSupportEnv:
     ) -> tuple[float, float, float, bool]:
         """
         Compute (correctness_score, efficiency_score, reward, was_correct).
-
-        Reward structure:
-          base_reward = (correctness + efficiency) / 2
-          partial_reward = base_reward * 0.6
-          + penalties for errors
         """
         reward = 0.0
         correctness_components: list[float] = []
@@ -297,7 +290,6 @@ class CustomerSupportEnv:
         else:
             reward += WRONG_ROUTE_PENALTY
             correctness_components.append(0.0)
-            # Extra penalty for wildly wrong routing (e.g. spam → billing)
             if {action.route_category, gt.correct_route} in [
                 {"spam", "billing"},
                 {"spam", "technical"},
@@ -311,7 +303,6 @@ class CustomerSupportEnv:
             reward += URGENCY_CORRECT_REWARD
             correctness_components.append(1.0)
         else:
-            # Partial credit for off-by-one
             pred_idx = URGENCY_ORDER.index(action.urgency_assessment)
             true_idx = URGENCY_ORDER.index(gt.correct_urgency)
             if abs(pred_idx - true_idx) == 1:
@@ -336,13 +327,11 @@ class CustomerSupportEnv:
             reward += PRIORITY_IN_RANGE_REWARD
             efficiency_components.append(1.0)
         else:
-            # Partial credit based on distance
             dist = min(abs(action.priority_score - lo), abs(action.priority_score - hi))
             partial = max(0.0, 1.0 - dist / 50.0)
             efficiency_components.append(partial)
 
         # ---- Sentiment consistency bonus ----
-        # Critical/high urgency should have lower sentiment tickets → small bonus if consistent
         if ticket.customer_sentiment < -0.3 and action.urgency_assessment in ("high", "critical"):
             efficiency_components.append(1.0)
         elif ticket.customer_sentiment > 0.5 and action.urgency_assessment in ("low", "medium"):
@@ -358,5 +347,4 @@ class CustomerSupportEnv:
         )
 
         was_correct = route_correct and urgency_correct and diff_correct
-
         return correctness_score, efficiency_score, reward, was_correct
