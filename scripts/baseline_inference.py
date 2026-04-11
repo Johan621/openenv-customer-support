@@ -36,6 +36,18 @@ if str(_repo_root) not in sys.path:
 from models import TicketData, TriageAction
 from server.customer_support_env import CustomerSupportEnv
 
+EPS = 1e-6
+
+
+def clamp_open01(x: float) -> float:
+    """Clamp x to the open interval (0, 1), never exactly 0.0 or 1.0."""
+    x = float(x)
+    if x <= 0.0:
+        return EPS
+    if x >= 1.0:
+        return 1.0 - EPS
+    return x
+
 
 # ---------------------------------------------------------------------------
 # Heuristic keyword tables
@@ -282,12 +294,12 @@ def run_evaluation(
         "episodes": n_episodes,
         "seed": seed,
         "avg_reward": round(avg_reward, 4),
-        "avg_correctness_score": round(avg_correctness, 4),
-        "avg_efficiency_score": round(avg_efficiency, 4),
-        "avg_route_accuracy": round(avg_route_accuracy, 4),
+        "avg_correctness_score": clamp_open01(round(avg_correctness, 4)),
+        "avg_efficiency_score": clamp_open01(round(avg_efficiency, 4)),
+        "avg_route_accuracy": clamp_open01(round(avg_route_accuracy, 4)),
         "target_score": target,
         "achieved_target": bool(score >= target),
-        "score": round(score, 4),
+        "score": clamp_open01(round(score, 4)),
     }
 
 
