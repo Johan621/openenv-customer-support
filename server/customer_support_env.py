@@ -80,29 +80,29 @@ class CustomerSupportEnv:
         self._episode_stats: EpisodeStats = EpisodeStats()
         self._all_correct_this_episode: bool = True
 
-    # ------------------------------------------------------------------
-    # Lazy load helper
-    # ------------------------------------------------------------------
+        # Canonical score for validators (always in (0,1))
+        self._task_score: float = EPS
 
     def _get_generator(self) -> TicketGenerator:
         if self._generator is None:
             self._generator = TicketGenerator()
         return self._generator
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    def _update_task_score(self) -> None:
+        """
+        Canonical 'task score' that validators can consume.
 
-    def reset(
-        self,
-        difficulty: str = "easy",
-        seed: Optional[int] = None,
-    ) -> TriageObservation:
-        """Start a new episode and return the first observation."""
+        Use avg_correctness as the basis, but clamp strictly to (0,1).
+        """
+        try:
+            base = float(self._episode_stats.avg_correctness)
+        except Exception:
+            base = EPS
+        self._task_score = clamp_open01(base)
+
+    def reset(self, difficulty: str = "easy", seed: Optional[int] = None) -> TriageObservation:
         if difficulty not in ("easy", "medium", "hard"):
-            raise ValueError(
-                f"Invalid difficulty: {difficulty!r}. Must be easy/medium/hard."
-            )
+            raise ValueError(f"Invalid difficulty: {difficulty!r}. Must be easy/medium/hard.")
 
         self._difficulty = difficulty
         self._step_index = 0
@@ -121,8 +121,9 @@ class CustomerSupportEnv:
             correct_routes=0,
             avg_correctness=EPS,
             avg_efficiency=EPS,
-            total_reward=EPS,  # CRITICAL: must not be 0.0
+            total_reward=EPS,
         )
+        self._update_task_score()
 
         logger.info(
             "Episode %d started | difficulty=%s | tickets=%d | seed=%s",
@@ -145,12 +146,13 @@ class CustomerSupportEnv:
                 "step_count": 0,
                 "episode_count": self._episode_count,
                 "session_id": self.session_id,
+                # NEW: canonical score (validators should read this)
+                "task_score": round(self._task_score, 6),
                 "message": "Episode started. Triage the first ticket.",
             },
         )
 
     def step(self, action: TriageAction) -> TriageObservation:
-        """Process one triage action and return the next observation."""
         if self._done:
             raise RuntimeError("Episode is done. Call reset() to start a new episode.")
         if not self._tickets:
@@ -160,15 +162,11 @@ class CustomerSupportEnv:
         gt = self._ground_truths[current_idx]
         ticket = self._tickets[current_idx]
 
-        # ---- Compute per-ticket scores ----
         correctness, efficiency, reward, was_correct = self._compute_reward(action, gt, ticket)
 
-        # ---- Update episode stats ----
         processed = current_idx + 1
         stats = self._episode_stats
 
-        # NOTE: stats.avg_* are clamped (0,1), but we use them as running averages.
-        # Recompute running averages and then clamp again for validator safety.
         total_corr = float(stats.avg_correctness) * current_idx + float(correctness)
         total_eff = float(stats.avg_efficiency) * current_idx + float(efficiency)
 
@@ -176,54 +174,34 @@ class CustomerSupportEnv:
             self._all_correct_this_episode = False
 
         stats.processed_tickets = processed
-        stats.avg_correctness = total_corr / processed
-        stats.avg_efficiency = total_eff / processed
-        stats.total_reward += float(reward)
+        stats.avg_correctness = clamp_open01(total_corr / processed)
+        stats.avg_efficiency = clamp_open01(total_eff / processed)
+        stats.total_reward = clamp_open01(float(stats.total_reward) + float(reward))
         if action.route_category == gt.correct_route:
             stats.correct_routes += 1
 
-        # Clamp episode-level "score-like" values (validator safety)
-        stats.avg_correctness = clamp_open01(float(stats.avg_correctness))
-        stats.avg_efficiency = clamp_open01(float(stats.avg_efficiency))
-        stats.total_reward = clamp_open01(float(stats.total_reward))
-
-        # ---- Advance step ----
+        # Advance
         self._step_index += 1
         n = len(self._tickets)
         progress = self._step_index / n
-
-        # ---- Check done ----
         episode_done = self._step_index >= n
 
-        # Episode bonus
         episode_bonus = 0.0
         if episode_done and self._all_correct_this_episode:
             episode_bonus = EPISODE_BONUS
             reward += episode_bonus
-            stats.total_reward += episode_bonus
-            stats.total_reward = clamp_open01(float(stats.total_reward))
+            stats.total_reward = clamp_open01(float(stats.total_reward) + float(episode_bonus))
 
         self._done = episode_done
 
-        # ---- Next ticket ----
         next_ticket: Optional[TicketData] = None
         if not episode_done:
             next_ticket = self._tickets[self._step_index]
 
-        logger.debug(
-            "Step %d/%d | route=%s (want %s) | urgency=%s (want %s) | "
-            "correctness=%.2f | reward=%.3f",
-            self._step_index,
-            n,
-            action.route_category,
-            gt.correct_route,
-            action.urgency_assessment,
-            gt.correct_urgency,
-            correctness,
-            reward,
-        )
+        # Update canonical task score
+        self._update_task_score()
 
-        # Clamp returned per-step scores to (0,1)
+        # Clamp returned per-step values
         safe_correctness = clamp_open01(float(correctness))
         safe_efficiency = clamp_open01(float(efficiency))
         safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
@@ -246,14 +224,18 @@ class CustomerSupportEnv:
                 "processed_ticket_id": ticket.ticket_id,
                 "correct_route": gt.correct_route,
                 "correct_urgency": gt.correct_urgency,
+                # NEW: canonical score (validators should read this)
+                "task_score": round(self._task_score, 6),
             },
         )
 
     def state(self) -> EnvironmentState:
-        """Return a snapshot of the current environment state."""
         current_ticket: Optional[TicketData] = None
         if not self._done and self._tickets and self._step_index < len(self._tickets):
             current_ticket = self._tickets[self._step_index]
+
+        # Ensure task score always available / clamped
+        self._update_task_score()
 
         return EnvironmentState(
             session_id=self.session_id,
@@ -263,11 +245,8 @@ class CustomerSupportEnv:
             done=self._done,
             episode_stats=self._episode_stats.model_copy(),
             current_ticket=current_ticket,
+            task_score=round(clamp_open01(float(self._task_score)), 6),
         )
-
-    # ------------------------------------------------------------------
-    # Reward computation
-    # ------------------------------------------------------------------
 
     def _compute_reward(
         self,
@@ -275,14 +254,10 @@ class CustomerSupportEnv:
         gt: TicketGroundTruth,
         ticket: TicketData,
     ) -> tuple[float, float, float, bool]:
-        """
-        Compute (correctness_score, efficiency_score, reward, was_correct).
-        """
         reward = 0.0
         correctness_components: list[float] = []
         efficiency_components: list[float] = []
 
-        # ---- Route correctness ----
         route_correct = action.route_category == gt.correct_route
         if route_correct:
             reward += CORRECT_ROUTE_REWARD
@@ -297,7 +272,6 @@ class CustomerSupportEnv:
             ]:
                 reward += INEFFICIENT_ROUTING_PENALTY
 
-        # ---- Urgency correctness ----
         urgency_correct = action.urgency_assessment == gt.correct_urgency
         if urgency_correct:
             reward += URGENCY_CORRECT_REWARD
@@ -311,7 +285,6 @@ class CustomerSupportEnv:
             else:
                 correctness_components.append(0.0)
 
-        # ---- Resolution difficulty ----
         diff_correct = action.resolution_difficulty == gt.correct_difficulty
         if diff_correct:
             reward += DIFFICULTY_CORRECT_REWARD
@@ -321,7 +294,6 @@ class CustomerSupportEnv:
             true_didx = DIFFICULTY_ORDER.index(gt.correct_difficulty)
             efficiency_components.append(max(0.0, 1.0 - abs(pred_didx - true_didx) * 0.5))
 
-        # ---- Priority score in range ----
         lo, hi = gt.optimal_priority_range
         if lo <= action.priority_score <= hi:
             reward += PRIORITY_IN_RANGE_REWARD
@@ -331,7 +303,6 @@ class CustomerSupportEnv:
             partial = max(0.0, 1.0 - dist / 50.0)
             efficiency_components.append(partial)
 
-        # ---- Sentiment consistency bonus ----
         if ticket.customer_sentiment < -0.3 and action.urgency_assessment in ("high", "critical"):
             efficiency_components.append(1.0)
         elif ticket.customer_sentiment > 0.5 and action.urgency_assessment in ("low", "medium"):
