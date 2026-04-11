@@ -1,11 +1,11 @@
 # Ensure stdout is UTF-8 (prevents Windows encoding crashes; safe on Linux too)
+from __future__ import annotations
 import sys
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 except Exception:
     pass
 
-from __future__ import annotations
 
 import json
 import os
