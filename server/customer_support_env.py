@@ -40,7 +40,10 @@ EPISODE_BONUS = 0.40
 
 URGENCY_ORDER = ["low", "medium", "high", "critical"]
 DIFFICULTY_ORDER = ["easy", "medium", "hard"]
+
+# Small epsilon to keep "score-like" values strictly inside (0, 1)
 EPS = 1e-6
+
 
 def clamp_open01(x: float) -> float:
     """Clamp x to the open interval (0, 1)."""
@@ -49,6 +52,7 @@ def clamp_open01(x: float) -> float:
     if x >= 1.0:
         return 1.0 - EPS
     return x
+
 
 class CustomerSupportEnv:
     """
@@ -96,7 +100,9 @@ class CustomerSupportEnv:
     ) -> TriageObservation:
         """Start a new episode and return the first observation."""
         if difficulty not in ("easy", "medium", "hard"):
-            raise ValueError(f"Invalid difficulty: {difficulty!r}. Must be easy/medium/hard.")
+            raise ValueError(
+                f"Invalid difficulty: {difficulty!r}. Must be easy/medium/hard."
+            )
 
         self._difficulty = difficulty
         self._step_index = 0
@@ -109,13 +115,15 @@ class CustomerSupportEnv:
         self._ground_truths = [gt for _, gt in episode]
 
         n = len(self._tickets)
+
+        # IMPORTANT: keep score-like values strictly in (0, 1)
         self._episode_stats = EpisodeStats(
             total_tickets=n,
             processed_tickets=0,
             correct_routes=0,
             avg_correctness=EPS,
             avg_efficiency=EPS,
-            total_reward=0.0,
+            total_reward=EPS,  # was 0.0 (can fail strict validator)
         )
 
         logger.info(
@@ -173,6 +181,11 @@ class CustomerSupportEnv:
         if action.route_category == gt.correct_route:
             stats.correct_routes += 1
 
+        # Clamp episode-level score fields into (0,1) (validator safety)
+        stats.avg_correctness = clamp_open01(float(stats.avg_correctness))
+        stats.avg_efficiency = clamp_open01(float(stats.avg_efficiency))
+        stats.total_reward = clamp_open01(float(stats.total_reward))
+
         # ---- Advance step ----
         self._step_index += 1
         n = len(self._tickets)
@@ -187,6 +200,8 @@ class CustomerSupportEnv:
             episode_bonus = EPISODE_BONUS
             reward += episode_bonus
             stats.total_reward += episode_bonus
+            # Clamp again after bonus
+            stats.total_reward = clamp_open01(float(stats.total_reward))
 
         self._done = episode_done
 
@@ -207,13 +222,15 @@ class CustomerSupportEnv:
             correctness,
             reward,
         )
+
         # Clamp score-like fields to (0,1) for validator
         safe_correctness = clamp_open01(float(correctness))
         safe_efficiency = clamp_open01(float(efficiency))
         safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
-        
-        # reward is already clamped to [0,1]
+
+        # Reward must be strictly (0,1) too (validator safety)
         reward = clamp_open01(float(reward))
+
         return TriageObservation(
             ticket_info=next_ticket,
             correctness_score=round(safe_correctness, 6),
