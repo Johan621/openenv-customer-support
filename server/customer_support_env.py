@@ -51,16 +51,15 @@ URGENCY_ORDER = ["low", "medium", "high", "critical"]
 DIFFICULTY_ORDER = ["easy", "medium", "hard"]
 
 # Keep all score-like values strictly inside (0, 1)
-EPS = 1e-6
-
+EPS = 1e-2  # 0.01
 
 def clamp_open01(x: float) -> float:
-    """Clamp x to the open interval (0, 1)."""
+    """Clamp x so it is strictly inside (0,1) AND safe after 2-decimal rounding."""
     x = float(x)
-    if x <= 0.0:
+    if x <= EPS:
         return EPS
-    if x >= 1.0:
-        return 1.0 - EPS
+    if x >= 1.0 - EPS:
+        return 1.0 - EPS  # 0.99
     return x
 
 
@@ -119,7 +118,7 @@ class CustomerSupportEnv:
         # FIXED:
         s.avg_correctness = clamp_open01(round(float(s.avg_correctness), 6))
         s.avg_efficiency  = clamp_open01(round(float(s.avg_efficiency),  6))
-        s.total_reward    = clamp_open01(round(float(s.total_reward),    6))
+        s.total_reward    = round(float(s.total_reward), 6)
         return s
 
     def reset(self, difficulty: str = "easy", seed: Optional[int] = None) -> TriageObservation:
@@ -143,7 +142,7 @@ class CustomerSupportEnv:
             correct_routes=0,
             avg_correctness=EPS,
             avg_efficiency=EPS,
-            total_reward=EPS,
+            total_reward=0.0,
         )
         self._update_task_score()
 
@@ -198,7 +197,7 @@ class CustomerSupportEnv:
         stats.processed_tickets = processed
         stats.avg_correctness = clamp_open01(total_corr / processed)
         stats.avg_efficiency = clamp_open01(total_eff / processed)
-        stats.total_reward = clamp_open01(float(stats.total_reward) + float(reward))
+        stats.total_reward = float(stats.total_reward) + float(reward)
         if action.route_category == gt.correct_route:
             stats.correct_routes += 1
 
@@ -212,7 +211,7 @@ class CustomerSupportEnv:
         if episode_done and self._all_correct_this_episode:
             episode_bonus = EPISODE_BONUS
             reward += episode_bonus
-            stats.total_reward = clamp_open01(float(stats.total_reward) + float(episode_bonus))
+            stats.total_reward = float(stats.total_reward) + float(episode_bonus)
 
         self._done = episode_done
 
@@ -227,10 +226,14 @@ class CustomerSupportEnv:
         safe_correctness = clamp_open01(float(correctness))
         safe_efficiency = clamp_open01(float(efficiency))
         safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
+        safe_progress = clamp_open01(safe_progress)
         safe_reward = clamp_open01(float(reward))
 
         # IMPORTANT: episode_bonus must also be strictly in (0,1) when exposed
-        safe_episode_bonus = clamp_open01(float(episode_bonus))
+        if episode_bonus == 0.0:
+            safe_episode_bonus = 0.0
+        else:
+            safe_episode_bonus = clamp_open01(float(episode_bonus))
 
         return TriageObservation(
             ticket_info=next_ticket,
