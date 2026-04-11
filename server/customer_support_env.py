@@ -40,7 +40,15 @@ EPISODE_BONUS = 0.40
 
 URGENCY_ORDER = ["low", "medium", "high", "critical"]
 DIFFICULTY_ORDER = ["easy", "medium", "hard"]
+EPS = 1e-6
 
+def clamp_open01(x: float) -> float:
+    """Clamp x to the open interval (0, 1)."""
+    if x <= 0.0:
+        return EPS
+    if x >= 1.0:
+        return 1.0 - EPS
+    return x
 
 class CustomerSupportEnv:
     """
@@ -105,8 +113,8 @@ class CustomerSupportEnv:
             total_tickets=n,
             processed_tickets=0,
             correct_routes=0,
-            avg_correctness=0.0,
-            avg_efficiency=0.0,
+            avg_correctness=EPS,
+            avg_efficiency=EPS,
             total_reward=0.0,
         )
 
@@ -120,9 +128,9 @@ class CustomerSupportEnv:
 
         return TriageObservation(
             ticket_info=self._tickets[0],
-            correctness_score=0.0,
-            efficiency_score=0.0,
-            task_progress=0.0,
+            correctness_score=EPS,
+            efficiency_score=EPS,
+            task_progress=EPS,
             difficulty_level=difficulty,  # type: ignore[arg-type]
             episode_stats=self._episode_stats.model_copy(),
             done=False,
@@ -199,14 +207,18 @@ class CustomerSupportEnv:
             correctness,
             reward,
         )
-
-        # Clamp reward to [0, 1] (many evaluators expect this range)
+        # Clamp score-like fields to (0,1) for validator
+        safe_correctness = clamp_open01(float(correctness))
+        safe_efficiency = clamp_open01(float(efficiency))
+        safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
+        
+        # reward is already clamped to [0,1]
         reward = max(0.0, min(1.0, reward))
         return TriageObservation(
             ticket_info=next_ticket,
-            correctness_score=round(correctness, 4),
-            efficiency_score=round(efficiency, 4),
-            task_progress=round(progress, 4),
+            correctness_score=round(safe_correctness, 6),
+            efficiency_score=round(safe_efficiency, 6),
+            task_progress=round(safe_progress, 6),
             difficulty_level=self._difficulty,  # type: ignore[arg-type]
             episode_stats=stats.model_copy(),
             done=episode_done,
