@@ -10,7 +10,9 @@ from openai import OpenAI
 from client import CustomerSupportEnvClient
 from models import TicketData, TriageAction
 
+# -----------------------------------------------------------------------------
 # Required env vars (with defaults where required)
+# -----------------------------------------------------------------------------
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
@@ -26,22 +28,27 @@ DIFFICULTIES = ["easy", "medium", "hard"]
 SEED = int(os.getenv("SEED", "42"))
 MAX_STEPS_GUARD = int(os.getenv("MAX_STEPS_GUARD", "200"))
 
-# Make sure anything score-like we PRINT is strictly in (0, 1)
-EPS = 1e-6
+# -----------------------------------------------------------------------------
+# Printing rules: rewards MUST be formatted to 2 decimals AND strictly between 0 and 1
+# Therefore printed rewards must be clamped so they round to 0.01..0.99 (never 0.00/1.00)
+# -----------------------------------------------------------------------------
+PRINT_MIN = 0.01
+PRINT_MAX = 0.99
+EPS = PRINT_MIN  # safe fallback for missing reward
 
 
-def clamp_open01(x: float) -> float:
+def clamp_print_score(x: float) -> float:
     x = float(x)
-    if x <= 0.0:
-        return EPS
-    if x >= 1.0:
-        return 1.0 - EPS
+    if x < PRINT_MIN:
+        return PRINT_MIN
+    if x > PRINT_MAX:
+        return PRINT_MAX
     return x
 
 
-# ----------------------------
+# -----------------------------------------------------------------------------
 # STRICT stdout logs (exact spec)
-# ----------------------------
+# -----------------------------------------------------------------------------
 def _bool(v: bool) -> str:
     return "true" if v else "false"
 
@@ -52,23 +59,23 @@ def log_start(task: str, env: str, model: str) -> None:
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     err = error if error is not None else "null"
-    # IMPORTANT: avoid formatting tiny values to 0.00
-    r = clamp_open01(reward)
+    r = clamp_print_score(reward)
+    # MUST be 2 decimals per hackathon spec
     print(
-        f"[STEP] step={step} action={action} reward={r:.6f} done={_bool(done)} error={err}",
+        f"[STEP] step={step} action={action} reward={r:.2f} done={_bool(done)} error={err}",
         flush=True,
     )
 
 
 def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    # IMPORTANT: avoid 0.00 in end summary too
-    rewards_str = ",".join(f"{clamp_open01(r):.6f}" for r in rewards)
+    # MUST be 2 decimals per hackathon spec
+    rewards_str = ",".join(f"{clamp_print_score(r):.2f}" for r in rewards)
     print(f"[END] success={_bool(success)} steps={steps} rewards={rewards_str}", flush=True)
 
 
-# ----------------------------
+# -----------------------------------------------------------------------------
 # LLM action selection (high score)
-# ----------------------------
+# -----------------------------------------------------------------------------
 VALID_ROUTES = {"billing", "technical", "feature", "feedback", "spam"}
 VALID_URGENCY = {"low", "medium", "high", "critical"}
 VALID_DIFFICULTY = {"easy", "medium", "hard"}
@@ -153,8 +160,7 @@ ONLY JSON. No extra text.
             stream=False,
         )
         text = (completion.choices[0].message.content or "").strip()
-    except Exception as exc:
-        print(f"[DEBUG] LLM call failed: {type(exc).__name__}: {exc}", flush=True)
+    except Exception:
         return heuristic_fallback(ticket)
 
     data = _extract_json(text)
@@ -221,10 +227,10 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
 
     except Exception as exc:
         last_error = f"{type(exc).__name__}:{exc}"
-        # IMPORTANT: never print reward=0.00
+        # Always emit a STEP line even on exception; never print 0.00
         log_step(step=max(steps_taken, 1), action="exception", reward=EPS, done=True, error=last_error)
 
-    # success metric is not part of strict (0,1) constraint, but keep logic same
+    # Determine success from episode stats (not part of strict score constraint)
     stats = obs.episode_stats
     avg_correctness = float(stats.avg_correctness)
     target = {"easy": 0.85, "medium": 0.70, "hard": 0.50}[difficulty]
