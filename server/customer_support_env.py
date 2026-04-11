@@ -134,7 +134,7 @@ class CustomerSupportEnv:
             difficulty_level=difficulty,  # type: ignore[arg-type]
             episode_stats=self._episode_stats.model_copy(),
             done=False,
-            reward=EPS,,
+            reward=EPS,
             metadata={
                 "step_count": 0,
                 "episode_count": self._episode_count,
