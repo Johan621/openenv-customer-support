@@ -337,7 +337,9 @@ class TestBaselineAgent:
         for difficulty in ("easy", "medium", "hard"):
             result = run_evaluation(difficulty, n_episodes=2, seed=42)
             assert "score" in result
-            assert 0.0 <= result["score"] <= 1.0
+            # Phase 2 requires strictly open interval (0, 1)
+            assert result["score"] > 0.0, f"score must be > 0.0, got {result['score']}"
+            assert result["score"] < 1.0, f"score must be < 1.0, got {result['score']}"
             assert result["difficulty"] == difficulty
 
     def test_baseline_reproducible(self):
@@ -347,3 +349,102 @@ class TestBaselineAgent:
         r2 = run_evaluation("easy", n_episodes=2, seed=99)
         assert r1["score"] == r2["score"]
         assert r1["avg_reward"] == r2["avg_reward"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 regression: all score-like floats must be strictly in (0, 1)
+# ---------------------------------------------------------------------------
+
+class TestScoreRangeRegression:
+    """
+    Regression tests guarding against Phase 2 validation failure:
+    "One or more task scores are out of range (must be strictly between 0 and 1)."
+
+    Runs full episodes across all difficulties and verifies that every
+    score-like float returned by reset/step/state is strictly inside (0, 1)
+    — never exactly 0.0 and never exactly 1.0.
+    """
+
+    # Fields on TriageObservation that must be in (0, 1)
+    _OBS_SCORE_FIELDS = ["correctness_score", "efficiency_score", "task_progress", "reward"]
+    # Fields on EpisodeStats that must be in (0, 1)
+    _STATS_SCORE_FIELDS = ["avg_correctness", "avg_efficiency", "total_reward"]
+    # Metadata keys that must be in (0, 1) when present
+    _META_SCORE_KEYS = ["task_score", "episode_bonus"]
+
+    def _assert_open01(self, value: float, label: str) -> None:
+        assert value > 0.0, (
+            f"Phase 2 violation: {label}={value!r} must be strictly > 0.0"
+        )
+        assert value < 1.0, (
+            f"Phase 2 violation: {label}={value!r} must be strictly < 1.0"
+        )
+
+    def _check_obs(self, obs: "TriageObservation", prefix: str) -> None:
+        for field in self._OBS_SCORE_FIELDS:
+            self._assert_open01(getattr(obs, field), f"{prefix}.{field}")
+        for field in self._STATS_SCORE_FIELDS:
+            self._assert_open01(
+                getattr(obs.episode_stats, field),
+                f"{prefix}.episode_stats.{field}",
+            )
+        for key in self._META_SCORE_KEYS:
+            if key in obs.metadata:
+                self._assert_open01(obs.metadata[key], f"{prefix}.metadata.{key}")
+
+    def _check_state(self, state: "EnvironmentState", prefix: str) -> None:
+        self._assert_open01(state.task_score, f"{prefix}.task_score")
+        for field in self._STATS_SCORE_FIELDS:
+            self._assert_open01(
+                getattr(state.episode_stats, field),
+                f"{prefix}.episode_stats.{field}",
+            )
+
+    @pytest.mark.parametrize("difficulty,seed", [
+        ("easy", 0),
+        ("easy", 42),
+        ("medium", 0),
+        ("hard", 0),
+    ])
+    def test_score_fields_strictly_open01_full_episode(self, difficulty: str, seed: int) -> None:
+        """All score-like floats from reset/step/state must be strictly in (0, 1)."""
+        env = CustomerSupportEnv()
+
+        obs = env.reset(difficulty, seed=seed)
+        self._check_obs(obs, f"reset({difficulty},seed={seed})")
+        self._check_state(env.state(), f"state_after_reset({difficulty},seed={seed})")
+
+        step_num = 0
+        while not obs.done:
+            action = TriageAction(
+                route_category="technical",
+                urgency_assessment="medium",
+                resolution_difficulty="medium",
+                priority_score=50.0,
+            )
+            obs = env.step(action)
+            step_num += 1
+            self._check_obs(obs, f"step{step_num}({difficulty},seed={seed})")
+            self._check_state(env.state(), f"state_after_step{step_num}({difficulty},seed={seed})")
+
+    def test_score_fields_strictly_open01_perfect_episode(self) -> None:
+        """Score-like fields must stay in (0, 1) even in a perfect episode with bonus."""
+        env = CustomerSupportEnv()
+        obs = env.reset("easy", seed=42)
+        self._check_obs(obs, "perfect_reset")
+
+        step_num = 0
+        while not obs.done:
+            gt = env._ground_truths[env._step_index]
+            perfect_action = TriageAction(
+                route_category=gt.correct_route,  # type: ignore[arg-type]
+                urgency_assessment=gt.correct_urgency,  # type: ignore[arg-type]
+                resolution_difficulty=gt.correct_difficulty,  # type: ignore[arg-type]
+                priority_score=(gt.optimal_priority_range[0] + gt.optimal_priority_range[1]) / 2,
+            )
+            obs = env.step(perfect_action)
+            step_num += 1
+            self._check_obs(obs, f"perfect_step{step_num}")
+
+        self._check_state(env.state(), "perfect_final_state")
+
