@@ -25,7 +25,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, Response
 # Allow imports from repo root when running as server/app.py
 _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
@@ -120,7 +120,10 @@ async def reset_episode(request: ResetRequest = Body(default_factory=ResetReques
     """
     try:
         obs = get_default_env().reset(difficulty=request.difficulty, seed=request.seed)
-        return JSONResponse(content=obs.model_dump())
+        return Response(
+            content=obs.model_dump_json(),
+            media_type="application/json",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -134,7 +137,10 @@ async def step_environment(request: StepRequest) -> TriageObservation:
     """
     try:
         obs = get_default_env().step(request.action)
-        return JSONResponse(content=obs.model_dump())
+        return Response(
+            content=obs.model_dump_json(),
+            media_type="application/json",
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -326,7 +332,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
 def main() -> None:
     port = int(os.environ.get("PORT", 7860))
     host = os.environ.get("HOST", "0.0.0.0")
-    uvicorn.run("server.app:app", host=host, port=port, reload=False)
+    uvicorn.run("server.app:app", host=host, port=port, reload=False, access_log=False)
 
 
 if __name__ == "__main__":
