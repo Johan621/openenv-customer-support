@@ -182,7 +182,15 @@ class CustomerSupportEnv:
         current_idx = self._step_index
         gt = self._ground_truths[current_idx]
         ticket = self._tickets[current_idx]
-
+        logger.info(
+            "episode=%d step=%d ticket_id=%s gt_route=%s gt_urgency=%s gt_difficulty=%s",
+            self._episode_count,
+            self._step_index + 1,
+            ticket.ticket_id,
+            gt.correct_route,
+            gt.correct_urgency,
+            gt.correct_difficulty,
+        )
         correctness, efficiency, reward, was_correct = self._compute_reward(action, gt, ticket)
 
         processed = current_idx + 1
@@ -250,8 +258,6 @@ class CustomerSupportEnv:
                 "session_id": self.session_id,
                 "episode_bonus": round(safe_episode_bonus, 6),
                 "processed_ticket_id": ticket.ticket_id,
-                "correct_route": gt.correct_route,
-                "correct_urgency": gt.correct_urgency,
                 # canonical score (validators should read this)
                 "task_score": clamp_open01(round(float(self._task_score), 6)),
             },
