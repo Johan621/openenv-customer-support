@@ -1,3 +1,10 @@
+# Ensure stdout is UTF-8 (prevents Windows encoding crashes; safe on Linux too)
+import sys
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+except Exception:
+    pass
+
 from __future__ import annotations
 
 import json
@@ -58,7 +65,11 @@ def log_start(task: str, env: str, model: str) -> None:
 
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    err = error if error is not None else "null"
+    if error is None:
+        err = "null"
+    else:
+    # Avoid any stdout encoding issues; keep content but escape non-encodable chars
+        err = str(error).encode("utf-8", "backslashreplace").decode("utf-8")
     r = clamp_print_score(reward)
     # MUST be 2 decimals per hackathon spec
     print(
