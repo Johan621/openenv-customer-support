@@ -6,6 +6,11 @@ Implements the OpenEnv step/reset/state interface with:
 - Partial progress signals
 - Episode-level bonus
 - State management
+
+Validator hardening:
+- All score-like floats returned by reset/step/state/metadata are clamped to the
+  open interval (0, 1) via clamp_open01() so no value is exactly 0.0 or 1.0.
+- Includes metadata["episode_bonus"] (previously 0.0 most of the time).
 """
 
 from __future__ import annotations
@@ -51,7 +56,7 @@ def clamp_open01(x: float) -> float:
         return EPS
     if x >= 1.0:
         return 1.0 - EPS
-    return x
+    return float(x)
 
 
 class CustomerSupportEnv:
@@ -146,7 +151,7 @@ class CustomerSupportEnv:
                 "step_count": 0,
                 "episode_count": self._episode_count,
                 "session_id": self.session_id,
-                # NEW: canonical score (validators should read this)
+                # canonical score (validators should read this)
                 "task_score": round(self._task_score, 6),
                 "message": "Episode started. Triage the first ticket.",
             },
@@ -207,6 +212,9 @@ class CustomerSupportEnv:
         safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
         safe_reward = clamp_open01(float(reward))
 
+        # IMPORTANT: episode_bonus must also be strictly in (0,1) when exposed
+        safe_episode_bonus = clamp_open01(float(episode_bonus))
+
         return TriageObservation(
             ticket_info=next_ticket,
             correctness_score=round(safe_correctness, 6),
@@ -220,11 +228,11 @@ class CustomerSupportEnv:
                 "step_count": self._step_index,
                 "episode_count": self._episode_count,
                 "session_id": self.session_id,
-                "episode_bonus": round(episode_bonus, 6),
+                "episode_bonus": round(safe_episode_bonus, 6),
                 "processed_ticket_id": ticket.ticket_id,
                 "correct_route": gt.correct_route,
                 "correct_urgency": gt.correct_urgency,
-                # NEW: canonical score (validators should read this)
+                # canonical score (validators should read this)
                 "task_score": round(self._task_score, 6),
             },
         )
