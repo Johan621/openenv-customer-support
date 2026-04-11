@@ -13,10 +13,10 @@ from models import TicketData, TriageAction
 # Required env vars (with defaults where required)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
-HF_TOKEN = os.getenv("HF_TOKEN")  # mandatory per latest email
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 
 if HF_TOKEN is None:
-    raise ValueError("HF_TOKEN environment variable is required")
+    raise ValueError("HF_TOKEN (or API_KEY) environment variable is required")
 
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space").rstrip("/")
 
