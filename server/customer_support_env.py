@@ -134,7 +134,7 @@ class CustomerSupportEnv:
             difficulty_level=difficulty,  # type: ignore[arg-type]
             episode_stats=self._episode_stats.model_copy(),
             done=False,
-            reward=0.0,
+            reward=EPS,,
             metadata={
                 "step_count": 0,
                 "episode_count": self._episode_count,
@@ -213,7 +213,7 @@ class CustomerSupportEnv:
         safe_progress = clamp_open01(float(progress)) if not episode_done else (1.0 - EPS)
         
         # reward is already clamped to [0,1]
-        reward = max(0.0, min(1.0, reward))
+        reward = clamp_open01(float(reward))
         return TriageObservation(
             ticket_info=next_ticket,
             correctness_score=round(safe_correctness, 6),
@@ -222,7 +222,7 @@ class CustomerSupportEnv:
             difficulty_level=self._difficulty,  # type: ignore[arg-type]
             episode_stats=stats.model_copy(),
             done=episode_done,
-            reward=round(reward, 4),
+            reward=round(reward, 6),
             metadata={
                 "step_count": self._step_index,
                 "episode_count": self._episode_count,
