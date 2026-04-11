@@ -18,11 +18,26 @@ HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN (or API_KEY) environment variable is required")
 
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space").rstrip("/")
+ENV_BASE_URL = os.getenv(
+    "ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space"
+).rstrip("/")
 
 DIFFICULTIES = ["easy", "medium", "hard"]
 SEED = int(os.getenv("SEED", "42"))
 MAX_STEPS_GUARD = int(os.getenv("MAX_STEPS_GUARD", "200"))
+
+# Keep all printed "score-like" values strictly inside (0, 1)
+EPS = 1e-6
+
+
+def clamp_open01(x: float) -> float:
+    x = float(x)
+    if x <= 0.0:
+        return EPS
+    if x >= 1.0:
+        return 1.0 - EPS
+    return x
+
 
 # ----------------------------
 # STRICT stdout logs (exact spec)
@@ -30,16 +45,28 @@ MAX_STEPS_GUARD = int(os.getenv("MAX_STEPS_GUARD", "200"))
 def _bool(v: bool) -> str:
     return "true" if v else "false"
 
+
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
+
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    # IMPORTANT:
+    # - Never print reward as 0.00 or 1.00 due to rounding.
+    # - Print with enough precision and clamp to (0,1).
     err = error if error is not None else "null"
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={_bool(done)} error={err}", flush=True)
+    r = clamp_open01(float(reward))
+    print(
+        f"[STEP] step={step} action={action} reward={r:.6f} done={_bool(done)} error={err}",
+        flush=True,
+    )
+
 
 def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    # Same: avoid 0.00 from formatting tiny EPS rewards
+    rewards_str = ",".join(f"{clamp_open01(float(r)):.6f}" for r in rewards)
     print(f"[END] success={_bool(success)} steps={steps} rewards={rewards_str}", flush=True)
+
 
 # ----------------------------
 # LLM action selection (high score)
@@ -48,8 +75,10 @@ VALID_ROUTES = {"billing", "technical", "feature", "feedback", "spam"}
 VALID_URGENCY = {"low", "medium", "high", "critical"}
 VALID_DIFFICULTY = {"easy", "medium", "hard"}
 
+
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
+
 
 def _extract_json(text: str) -> Optional[Dict[str, Any]]:
     text = text.strip()
@@ -62,6 +91,7 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
         return json.loads(m.group(0))
     except Exception:
         return None
+
 
 def heuristic_fallback(ticket: TicketData) -> TriageAction:
     text = f"{ticket.subject} {ticket.description}".lower()
@@ -76,7 +106,9 @@ def heuristic_fallback(ticket: TicketData) -> TriageAction:
     else:
         route = "technical"
 
-    urgency = "high" if any(k in text for k in ["critical", "down", "outage", "urgent", "asap", "immediately", "blocker"]) else "low"
+    urgency = "high" if any(
+        k in text for k in ["critical", "down", "outage", "urgent", "asap", "immediately", "blocker"]
+    ) else "low"
     resolution_difficulty = "hard" if urgency in ("high", "critical") else "easy"
     priority_score = 80.0 if urgency in ("high", "critical") else 25.0
 
@@ -86,6 +118,7 @@ def heuristic_fallback(ticket: TicketData) -> TriageAction:
         resolution_difficulty=resolution_difficulty,  # type: ignore[arg-type]
         priority_score=priority_score,
     )
+
 
 def llm_choose_action(client: OpenAI, ticket: TicketData, difficulty: str) -> TriageAction:
     prompt = f"""
@@ -155,6 +188,7 @@ ONLY JSON. No extra text.
         priority_score=pr,
     )
 
+
 def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, seed: int) -> None:
     task = f"customer_support_triage::{difficulty}"
     env_name = "openenv-customer-support"
@@ -177,11 +211,15 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
             action_obj = llm_choose_action(llm, obs.ticket_info, difficulty)
             obs = env_client.step(action_obj)
 
-            reward = float(obs.reward or 0.0)
+            reward = float(obs.reward or EPS)
             rewards.append(reward)
             steps_taken = step
 
-            action_str = json.dumps(action_obj.model_dump(), ensure_ascii=True, separators=(",", ":"))
+            action_str = json.dumps(
+                action_obj.model_dump(),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
             log_step(step=step, action=action_str, reward=reward, done=bool(obs.done), error=last_error)
 
             if obs.done:
@@ -189,7 +227,8 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
 
     except Exception as exc:
         last_error = f"{type(exc).__name__}:{exc}"
-        log_step(step=max(steps_taken, 1), action="exception", reward=0.00, done=True, error=last_error)
+        # Never log a 0.00 reward in exception path
+        log_step(step=max(steps_taken, 1), action="exception", reward=EPS, done=True, error=last_error)
 
     stats = obs.episode_stats
     avg_correctness = float(stats.avg_correctness)
@@ -198,11 +237,13 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
 
     log_end(success=success, steps=steps_taken, rewards=rewards)
 
+
 def main() -> None:
     llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN, timeout=30)
     env_client = CustomerSupportEnvClient(base_url=ENV_BASE_URL)
     for d in DIFFICULTIES:
         run_one(env_client, llm, d, SEED)
+
 
 if __name__ == "__main__":
     main()
