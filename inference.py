@@ -1,5 +1,5 @@
-# Ensure stdout is UTF-8 (prevents Windows encoding crashes; safe on Linux too)
 from __future__ import annotations
+# Ensure stdout is UTF-8 (prevents Windows encoding crashes; safe on Linux too)
 import sys
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
@@ -41,11 +41,16 @@ MAX_STEPS_GUARD = int(os.getenv("MAX_STEPS_GUARD", "200"))
 # -----------------------------------------------------------------------------
 PRINT_MIN = 0.01
 PRINT_MAX = 0.99
-EPS = PRINT_MIN  # safe fallback for missing reward
-
+EPS = PRINT_MIN
 
 def clamp_print_score(x: float) -> float:
-    x = float(x)
+    try:
+        x = float(x)
+    except Exception:
+        return EPS
+    # handle nan/inf
+    if x != x or x == float("inf") or x == float("-inf"):
+        return EPS
     if x < PRINT_MIN:
         return PRINT_MIN
     if x > PRINT_MAX:
@@ -68,7 +73,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     if error is None:
         err = "null"
     else:
-    # Avoid any stdout encoding issues; keep content but escape non-encodable chars
+        # Avoid any stdout encoding issues; keep content but escape non-encodable chars
         err = str(error).encode("utf-8", "backslashreplace").decode("utf-8")
     r = clamp_print_score(reward)
     # MUST be 2 decimals per hackathon spec
@@ -226,8 +231,9 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
             action_obj = llm_choose_action(llm, obs.ticket_info, difficulty)
             obs = env_client.step(action_obj)
 
-            reward = float(obs.reward) if obs.reward is not None else EPS
-            rewards.append(reward)
+            raw_reward = float(obs.reward) if obs.reward is not None else EPS
+            reward = clamp_print_score(raw_reward)   # <-- NEW
+            rewards.append(reward)     
             steps_taken = step
 
             action_str = json.dumps(action_obj.model_dump(), ensure_ascii=True, separators=(",", ":"))
