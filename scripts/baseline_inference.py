@@ -268,7 +268,7 @@ def run_evaluation(
                 print(
                     f"  [{difficulty}] ep={ep} ticket={obs.metadata.get('processed_ticket_id','?')} "
                     f"route={action.route_category} (want {obs.metadata.get('correct_route','?')}) "
-                    f"correctness={obs.correctness_score:.2f} reward={obs.reward:.3f}"
+                    f"correctness={clamp_open01(obs.correctness_score):.6f} reward={clamp_open01(obs.reward):.6f}"
                 )
 
         stats = obs.episode_stats
