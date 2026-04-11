@@ -111,20 +111,20 @@ class TriageObservation(BaseModel):
     # Defaults must be strictly inside (0,1)
     correctness_score: float = Field(
         EPS,
-        gt=0.0,
-        lt=1.0,
+        ge=0.0,
+        le=1.0,
         description="Triage correctness for the previous action (0-1)",
     )
     efficiency_score: float = Field(
         EPS,
-        gt=0.0,
-        lt=1.0,
+        ge=0.0,
+        le=1.0,
         description="Routing efficiency for the previous action (0-1)",
     )
     task_progress: float = Field(
         EPS,
-        gt=0.0,
-        lt=1.0,
+        ge=0.0,
+        le=1.0,
         description="Fraction of tickets processed in the current episode",
     )
 
@@ -180,7 +180,7 @@ class EnvironmentState(BaseModel):
     # NEW: canonical task score in (0,1)
     task_score: float = Field(
         EPS,
-        gt=0.0,
-        lt=1.0,
+        ge=0.0,
+        le=1.0,
         description="Canonical task score for validators; must be strictly between 0 and 1.",
     )
