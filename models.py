@@ -10,6 +10,9 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+# Keep score-like defaults strictly inside (0, 1) for strict validators
+EPS = 1e-6
+
 
 # ---------------------------------------------------------------------------
 # Ticket data model
@@ -52,12 +55,6 @@ ResolutionDifficulty = Literal["easy", "medium", "hard"]
 class TriageAction(BaseModel):
     """
     Action the agent takes for each ticket.
-
-    The agent must:
-    1. Route the ticket to the correct department (route_category)
-    2. Assess the true urgency level (urgency_assessment)
-    3. Predict the resolution difficulty (resolution_difficulty)
-    4. Assign a numerical priority score 0-100 (priority_score)
     """
 
     route_category: RouteCategory = Field(
@@ -95,40 +92,42 @@ class EpisodeStats(BaseModel):
     total_tickets: int = Field(0, description="Total tickets in this episode")
     processed_tickets: int = Field(0, description="Tickets processed so far")
     correct_routes: int = Field(0, description="Correctly routed tickets")
-    avg_correctness: float = Field(0.0, description="Running average correctness score")
-    avg_efficiency: float = Field(0.0, description="Running average efficiency score")
-    total_reward: float = Field(0.0, description="Cumulative reward this episode")
+
+    # Defaults must be strictly inside (0,1)
+    avg_correctness: float = Field(EPS, description="Running average correctness score")
+    avg_efficiency: float = Field(EPS, description="Running average efficiency score")
+    total_reward: float = Field(EPS, description="Cumulative reward this episode")
 
 
 class TriageObservation(BaseModel):
     """
     Observation returned by the environment after each step.
-
-    Contains the next ticket to process (if episode is not done),
-    per-step reward signals, and episode progress metadata.
     """
 
     ticket_info: Optional[TicketData] = Field(
         None, description="Current ticket to triage (None when episode is done)"
     )
+
+    # Defaults must be strictly inside (0,1)
     correctness_score: float = Field(
-        0.0,
+        EPS,
         ge=0.0,
         le=1.0,
         description="Triage correctness for the previous action (0-1)",
     )
     efficiency_score: float = Field(
-        0.0,
+        EPS,
         ge=0.0,
         le=1.0,
         description="Routing efficiency for the previous action (0-1)",
     )
     task_progress: float = Field(
-        0.0,
+        EPS,
         ge=0.0,
         le=1.0,
         description="Fraction of tickets processed in the current episode",
     )
+
     difficulty_level: Literal["easy", "medium", "hard"] = Field(
         "easy", description="Current difficulty level"
     )
@@ -137,7 +136,10 @@ class TriageObservation(BaseModel):
         description="Aggregate episode statistics",
     )
     done: bool = Field(False, description="True when the episode has ended")
-    reward: float = Field(0.0, description="Step reward (partial progress signal)")
+
+    # Treat as score-like too for strict validators
+    reward: float = Field(EPS, description="Step reward (partial progress signal)")
+
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata (step_count, episode_count, etc.)",
@@ -161,7 +163,6 @@ class ResetRequest(BaseModel):
 
 class StepRequest(BaseModel):
     """Request body for POST /step."""
-
     action: TriageAction
 
 
