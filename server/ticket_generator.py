@@ -413,11 +413,15 @@ class TicketGenerator:
         descs, subjs, wrong_cats = self._category_pool(true_category, difficulty_level)
         description_text, base_urgency = self._rng.choice(descs)
 
-        # Override urgency based on difficulty
         urgency_pool = _URGENCY_BY_CATEGORY.get(true_category, ["medium"])
         if difficulty_level == "easy":
             urgency_pool = [u for u in urgency_pool if u != "critical"] or urgency_pool
-        true_urgency = self._rng.choice(urgency_pool)
+
+        # Use the template's urgency if it's allowed; otherwise fall back to random.
+        if base_urgency in urgency_pool:
+            true_urgency = base_urgency
+        else:
+            true_urgency = self._rng.choice(urgency_pool)
 
         # Subject selection
         subject = self._rng.choice(subjs)

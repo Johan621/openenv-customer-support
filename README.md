@@ -16,6 +16,12 @@ This Space/repo is set up to:
 - expose a FastAPI/uvicorn server
 - pass `openenv validate` for multi-mode deployment
 
+## Anti-cheat / fairness
+
+- Ground-truth labels (correct route/urgency/difficulty) are **not returned** in `/reset`, `/step`, or `/state`.
+- Agents only receive ticket text + metadata and reward/correctness signals.
+- This prevents trivial exploitation and keeps the benchmark realistic.
+
 ## Environment Description & Motivation
 
 This environment simulates a realistic customer-support triage workflow. On each step, the agent receives a customer support ticket (subject, description, and metadata) and must:
