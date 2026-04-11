@@ -181,7 +181,7 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
             rewards.append(reward)
             steps_taken = step
 
-            action_str = json.dumps(action_obj.model_dump(), ensure_ascii=True)
+            action_str = json.dumps(action_obj.model_dump(), ensure_ascii=True, separators=(",", ":"))
             log_step(step=step, action=action_str, reward=reward, done=bool(obs.done), error=last_error)
 
             if obs.done:
@@ -199,7 +199,7 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
     log_end(success=success, steps=steps_taken, rewards=rewards)
 
 def main() -> None:
-    llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN, timeout=30)
     env_client = CustomerSupportEnvClient(base_url=ENV_BASE_URL)
     for d in DIFFICULTIES:
         run_one(env_client, llm, d, SEED)
