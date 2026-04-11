@@ -7,10 +7,14 @@ Implements the OpenEnv step/reset/state interface with:
 - Episode-level bonus
 - State management
 
-Validator hardening:
-- All score-like floats returned by reset/step/state/metadata are clamped to the
-  open interval (0, 1) via clamp_open01() so no value is exactly 0.0 or 1.0.
-- Includes metadata["episode_bonus"] (previously 0.0 most of the time).
+Validator hardening (important):
+- Any score-like float that may be validated is clamped to the open interval (0, 1),
+  never exactly 0.0 and never exactly 1.0.
+- This includes:
+  - TriageObservation.correctness_score / efficiency_score / task_progress / reward
+  - metadata.task_score / metadata.episode_bonus
+  - episode_stats.avg_correctness / avg_efficiency / total_reward
+  - EnvironmentState.task_score
 """
 
 from __future__ import annotations
@@ -52,11 +56,12 @@ EPS = 1e-6
 
 def clamp_open01(x: float) -> float:
     """Clamp x to the open interval (0, 1)."""
+    x = float(x)
     if x <= 0.0:
         return EPS
     if x >= 1.0:
         return 1.0 - EPS
-    return float(x)
+    return x
 
 
 class CustomerSupportEnv:
@@ -105,6 +110,17 @@ class CustomerSupportEnv:
             base = EPS
         self._task_score = clamp_open01(base)
 
+    def _safe_episode_stats(self) -> EpisodeStats:
+        """
+        Return a copy of episode stats with all score-like floats clamped AND rounded.
+        This prevents any downstream JSON encoding/rounding from producing 0.0 or 1.0.
+        """
+        s = self._episode_stats.model_copy()
+        s.avg_correctness = round(clamp_open01(float(s.avg_correctness)), 6)
+        s.avg_efficiency = round(clamp_open01(float(s.avg_efficiency)), 6)
+        s.total_reward = round(clamp_open01(float(s.total_reward)), 6)
+        return s
+
     def reset(self, difficulty: str = "easy", seed: Optional[int] = None) -> TriageObservation:
         if difficulty not in ("easy", "medium", "hard"):
             raise ValueError(f"Invalid difficulty: {difficulty!r}. Must be easy/medium/hard.")
@@ -144,7 +160,7 @@ class CustomerSupportEnv:
             efficiency_score=EPS,
             task_progress=EPS,
             difficulty_level=difficulty,  # type: ignore[arg-type]
-            episode_stats=self._episode_stats.model_copy(),
+            episode_stats=self._safe_episode_stats(),
             done=False,
             reward=EPS,
             metadata={
@@ -152,7 +168,7 @@ class CustomerSupportEnv:
                 "episode_count": self._episode_count,
                 "session_id": self.session_id,
                 # canonical score (validators should read this)
-                "task_score": round(self._task_score, 6),
+                "task_score": round(clamp_open01(float(self._task_score)), 6),
                 "message": "Episode started. Triage the first ticket.",
             },
         )
@@ -221,7 +237,7 @@ class CustomerSupportEnv:
             efficiency_score=round(safe_efficiency, 6),
             task_progress=round(safe_progress, 6),
             difficulty_level=self._difficulty,  # type: ignore[arg-type]
-            episode_stats=stats.model_copy(),
+            episode_stats=self._safe_episode_stats(),
             done=episode_done,
             reward=round(safe_reward, 6),
             metadata={
@@ -233,7 +249,7 @@ class CustomerSupportEnv:
                 "correct_route": gt.correct_route,
                 "correct_urgency": gt.correct_urgency,
                 # canonical score (validators should read this)
-                "task_score": round(self._task_score, 6),
+                "task_score": round(clamp_open01(float(self._task_score)), 6),
             },
         )
 
@@ -251,7 +267,7 @@ class CustomerSupportEnv:
             step_count=self._step_index,
             episode_count=self._episode_count,
             done=self._done,
-            episode_stats=self._episode_stats.model_copy(),
+            episode_stats=self._safe_episode_stats(),
             current_ticket=current_ticket,
             task_score=round(clamp_open01(float(self._task_score)), 6),
         )
@@ -318,11 +334,13 @@ class CustomerSupportEnv:
 
         correctness_score = (
             sum(correctness_components) / len(correctness_components)
-            if correctness_components else 0.0
+            if correctness_components
+            else 0.0
         )
         efficiency_score = (
             sum(efficiency_components) / len(efficiency_components)
-            if efficiency_components else 0.0
+            if efficiency_components
+            else 0.0
         )
 
         was_correct = route_correct and urgency_correct and diff_correct
