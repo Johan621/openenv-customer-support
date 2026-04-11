@@ -39,9 +39,9 @@ def reset_episode(difficulty: str, seed: int = None):
         return (
             ticket_text,
             f"Progress: {obs.task_progress:.1%}",
-            f"Correctness: {obs.correctness_score:.2f}",
-            f"Efficiency: {obs.efficiency_score:.2f}",
-            f"Reward: {obs.reward:.3f}",
+            f"Correctness: {max(1e-6, min(1 - 1e-6, float(obs.correctness_score))):.6f}",
+            f"Efficiency: {max(1e-6, min(1 - 1e-6, float(obs.efficiency_score))):.6f}",
+            f"Reward: {max(1e-6, min(1 - 1e-6, float(obs.reward))):.6f}",
         )
     except Exception as e:
         return f"Error: {str(e)}", "", "", "", ""
@@ -78,9 +78,9 @@ def step_action(route: str, urgency: str, difficulty: str, priority: float):
         return (
             ticket_text,
             f"Progress: {obs.task_progress:.1%}",
-            f"Correctness: {obs.correctness_score:.2f}",
-            f"Efficiency: {obs.efficiency_score:.2f}",
-            f"Reward: {obs.reward:.3f}",
+            f"Correctness: {max(1e-6, min(1 - 1e-6, float(obs.correctness_score))):.6f}",
+            f"Efficiency: {max(1e-6, min(1 - 1e-6, float(obs.efficiency_score))):.6f}",
+            f"Reward: {max(1e-6, min(1 - 1e-6, float(obs.reward))):.6f}",
             done_text,
         )
     except Exception as e:
