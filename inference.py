@@ -1,348 +1,208 @@
-"""
-Customer Support Triage RL - Inference Script (STRICT Phase-2 structured stdout)
-
-MANDATORY ENV VARS (injected by validator):
-- API_BASE_URL : OpenAI-compatible endpoint (LiteLLM proxy)
-- MODEL_NAME   : Model identifier
-- API_KEY      : API key for the proxy (IMPORTANT: they check this)
-(They may also set HF_TOKEN, but do NOT rely on it.)
-
-HARD REQUIREMENTS:
-1) MUST use OpenAI Client for all LLM calls using API_BASE_URL + API_KEY.
-2) MUST emit structured stdout logs strictly using [START] / [STEP] / [END] with
-   the same field names + ordering as the sample script.
-3) MUST flush stdout (print(..., flush=True)).
-4) MUST NOT redirect stdout.
-"""
-
 from __future__ import annotations
 
 import json
-import os 
+import os
 import re
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
 from client import CustomerSupportEnvClient
 from models import TicketData, TriageAction
 
+# Required env vars (with defaults where required)
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
+HF_TOKEN = os.getenv("HF_TOKEN")  # mandatory per latest email
 
-# ----------------------------
-# Required env vars (do not hardcode)
-# ----------------------------
-API_BASE_URL = os.environ.get("API_BASE_URL", "")
-API_KEY = os.environ.get("API_KEY", "")  # REQUIRED by validator check
-MODEL_NAME = os.environ.get("MODEL_NAME", "")
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required")
 
-# Environment URL (Space). Judges may override ENV_BASE_URL.
-ENV_BASE_URL = os.getenv(
-    "ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space"
-).rstrip("/")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://johan45-openenv-customer-support.hf.space").rstrip("/")
 
-# Evaluation defaults
 DIFFICULTIES = ["easy", "medium", "hard"]
 SEED = int(os.getenv("SEED", "42"))
 MAX_STEPS_GUARD = int(os.getenv("MAX_STEPS_GUARD", "200"))
 
-OUTPUT_SCORES = Path("scores.json")
-OUTPUT_RESULTS = Path("inference_results.json")
-
-
 # ----------------------------
-# STRICT structured stdout logs (match sample field names + order)
+# STRICT stdout logs (exact spec)
 # ----------------------------
+def _bool(v: bool) -> str:
+    return "true" if v else "false"
+
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    err = error if error is not None else "null"
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={_bool(done)} error={err}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: str | None) -> None:
-    err = error if error is not None else "None"
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.6f} done={done} error={err}",
-        flush=True,
-    )
-
-
-def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
-    print(
-        f"[END] success={success} steps={steps} score={score:.6f} rewards={rewards}",
-        flush=True,
-    )
-
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={_bool(success)} steps={steps} rewards={rewards_str}", flush=True)
 
 # ----------------------------
-# Minimal LLM call (to satisfy "proxy was used")
+# LLM action selection (high score)
 # ----------------------------
-def ping_llm(client: OpenAI) -> str:
-    """
-    Make a tiny request through the injected LiteLLM proxy.
-    This is required because the validator checks that API_KEY was actually used.
-    """
+VALID_ROUTES = {"billing", "technical", "feature", "feedback", "spam"}
+VALID_URGENCY = {"low", "medium", "high", "critical"}
+VALID_DIFFICULTY = {"easy", "medium", "hard"}
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+def heuristic_fallback(ticket: TicketData) -> TriageAction:
+    text = f"{ticket.subject} {ticket.description}".lower()
+    if any(k in text for k in ["refund", "invoice", "charged", "billing", "payment", "subscription"]):
+        route = "billing"
+    elif any(k in text for k in ["error", "bug", "crash", "login", "timeout", "500", "404", "broken"]):
+        route = "technical"
+    elif any(k in text for k in ["feature", "request", "suggestion", "would love", "please add"]):
+        route = "feature"
+    elif any(k in text for k in ["thank", "great", "excellent", "love", "amazing"]):
+        route = "feedback"
+    else:
+        route = "technical"
+
+    urgency = "high" if any(k in text for k in ["critical", "down", "outage", "urgent", "asap", "immediately", "blocker"]) else "low"
+    resolution_difficulty = "hard" if urgency in ("high", "critical") else "easy"
+    priority_score = 80.0 if urgency in ("high", "critical") else 25.0
+
+    return TriageAction(
+        route_category=route,  # type: ignore[arg-type]
+        urgency_assessment=urgency,  # type: ignore[arg-type]
+        resolution_difficulty=resolution_difficulty,  # type: ignore[arg-type]
+        priority_score=priority_score,
+    )
+
+def llm_choose_action(client: OpenAI, ticket: TicketData, difficulty: str) -> TriageAction:
+    prompt = f"""
+Return ONLY JSON with keys:
+route_category, urgency_assessment, resolution_difficulty, priority_score
+
+Allowed:
+route_category: billing|technical|feature|feedback|spam
+urgency_assessment: low|medium|high|critical
+resolution_difficulty: easy|medium|hard
+priority_score: 0..100
+
+Ticket:
+subject: {ticket.subject}
+description: {ticket.description}
+initial_category: {ticket.initial_category}
+customer_sentiment: {ticket.customer_sentiment}
+previous_tickets_count: {ticket.previous_tickets_count}
+word_count: {ticket.word_count}
+difficulty_level: {difficulty}
+
+ONLY JSON. No extra text.
+""".strip()
+
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Reply with the single word: hello"},
+                {"role": "system", "content": "Return strict JSON only."},
+                {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=5,
+            max_tokens=220,
             stream=False,
         )
-        return (completion.choices[0].message.content or "").strip() or "hello"
+        text = (completion.choices[0].message.content or "").strip()
     except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        return "hello"
+        print(f"[DEBUG] LLM call failed: {type(exc).__name__}: {exc}", flush=True)
+        return heuristic_fallback(ticket)
 
+    data = _extract_json(text)
+    if not isinstance(data, dict):
+        return heuristic_fallback(ticket)
 
-# ---------------------------------------------------------------------------
-# Deterministic heuristic agent (baseline)
-# ---------------------------------------------------------------------------
-_BILLING_KEYWORDS = [
-    "charge", "charged", "billing", "invoice", "payment", "refund",
-    "subscription", "fee", "cost", "price", "paid", "money", "credit card",
-    "bank", "transaction", "overcharge", "discount", "promo", "plan",
-]
-_TECHNICAL_KEYWORDS = [
-    "crash", "error", "bug", "broken", "not working", "issue", "problem",
-    "api", "integration", "login", "password", "slow", "performance",
-    "export", "import", "file", "data", "sync", "update", "version",
-    "500", "404", "timeout", "connection", "install", "upgrade",
-]
-_FEATURE_KEYWORDS = [
-    "feature", "request", "suggestion", "would love", "could you add",
-    "please add", "wish", "improvement", "enhance", "option", "support for",
-    "integrate", "dark mode", "shortcut", "keyboard", "bulk",
-]
-_FEEDBACK_KEYWORDS = [
-    "great", "excellent", "wonderful", "thank", "appreciate", "happy",
-    "love", "positive", "feedback", "review", "testimonial", "pleased",
-    "satisfaction", "compliment", "amazing", "fantastic",
-    "experience", "observations", "months of using", "six months",
-    "year of using", "service is why", "professional", "exceptional",
-    "noteworthy", "observation", "impressed", "renew our subscription",
-    "continue to use", "looking forward", "praise", "renew",
-    "share that", "wanted to share", "productivity has improved",
-    "why we continue", "would appreciate a call", "account management",
-    "reconsidering", "recently the product",
-]
-_SPAM_KEYWORDS = [
-    "prize", "congratulations", "winner", "earn money", "guaranteed",
-    "click here", "free upgrade", "limited time", "act now", "thousands",
-    "make money", "work from home", "breach", "compromised", "verify",
-    "bank account", "social security", "urgent security", "register immediately",
-]
+    route = str(data.get("route_category", "")).strip().lower()
+    urg = str(data.get("urgency_assessment", "")).strip().lower()
+    diff = str(data.get("resolution_difficulty", "")).strip().lower()
+    try:
+        pr = float(data.get("priority_score", 50.0))
+    except Exception:
+        pr = 50.0
 
+    fb = heuristic_fallback(ticket)
+    if route not in VALID_ROUTES:
+        route = str(fb.route_category)
+    if urg not in VALID_URGENCY:
+        urg = str(fb.urgency_assessment)
+    if diff not in VALID_DIFFICULTY:
+        diff = str(fb.resolution_difficulty)
 
-def _count_keywords(text: str, keywords: list[str]) -> int:
-    t = text.lower()
-    return sum(1 for kw in keywords if kw in t)
+    pr = _clamp(pr, 0.0, 100.0)
 
+    return TriageAction(
+        route_category=route,  # type: ignore[arg-type]
+        urgency_assessment=urg,  # type: ignore[arg-type]
+        resolution_difficulty=diff,  # type: ignore[arg-type]
+        priority_score=pr,
+    )
 
-class HeuristicBaselineAgent:
-    def act(self, ticket: TicketData) -> TriageAction:
-        full_text = f"{ticket.subject} {ticket.description}"
+def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, seed: int) -> None:
+    task = f"customer_support_triage::{difficulty}"
+    env_name = "openenv-customer-support"
 
-        route = self._classify_route(full_text, ticket)
-        urgency = self._classify_urgency(full_text, ticket, route)
-        difficulty = self._classify_difficulty(urgency)
-        priority = self._compute_priority(urgency, ticket)
-
-        return TriageAction(
-            route_category=route,  # type: ignore[arg-type]
-            urgency_assessment=urgency,  # type: ignore[arg-type]
-            resolution_difficulty=difficulty,  # type: ignore[arg-type]
-            priority_score=priority,
-        )
-
-    def _classify_route(self, text: str, ticket: TicketData) -> str:
-        scores = {
-            "billing": _count_keywords(text, _BILLING_KEYWORDS),
-            "technical": _count_keywords(text, _TECHNICAL_KEYWORDS),
-            "feature": _count_keywords(text, _FEATURE_KEYWORDS),
-            "feedback": _count_keywords(text, _FEEDBACK_KEYWORDS),
-            "spam": _count_keywords(text, _SPAM_KEYWORDS),
-        }
-
-        initial = (ticket.initial_category or "").lower()
-        if initial in scores:
-            scores[initial] += 1
-
-        if ticket.customer_sentiment > 0.6:
-            if scores["technical"] == 0 and scores["billing"] == 0:
-                scores["feedback"] += 2
-            else:
-                scores["feedback"] += 1
-
-        route = max(scores, key=lambda k: scores[k])
-        if scores[route] == 0:
-            route = initial if initial in scores else "technical"
-        return route
-
-    def _classify_urgency(self, text: str, ticket: TicketData, route: str = "") -> str:
-        text_lower = text.lower()
-        sentiment = ticket.customer_sentiment
-
-        if route in ("feedback", "feature", "spam"):
-            return "low"
-
-        critical_patterns = [
-            r"\bcritical\b", r"\bdown\b", r"\boutage\b",
-            r"\bproduction\b.*\bbroken\b", r"\bcannot access\b",
-            r"\block.*out\b", r"\bwhole team\b", r"\bentire team\b",
-        ]
-        if any(re.search(p, text_lower) for p in critical_patterns):
-            return "critical"
-
-        high_patterns = [
-            r"\burgent\b", r"\bimmediately\b", r"\basap\b",
-            r"\bblocker\b", r"\bnot working\b",
-            r"\ball.*users?\b", r"\bduplicate charge\b",
-        ]
-        if any(re.search(p, text_lower) for p in high_patterns):
-            return "high"
-
-        if sentiment < -0.5:
-            return "high"
-        if sentiment < -0.2:
-            return "medium"
-
-        if _count_keywords(text, _SPAM_KEYWORDS) > 2:
-            return "low"
-
-        if ticket.word_count > 80:
-            return "medium"
-        return "low"
-
-    def _classify_difficulty(self, urgency: str) -> str:
-        return {"critical": "hard", "high": "hard", "medium": "medium", "low": "easy"}[urgency]
-
-    def _compute_priority(self, urgency: str, ticket: TicketData) -> float:
-        base = {"critical": 90.0, "high": 70.0, "medium": 45.0, "low": 20.0}[urgency]
-        sentiment_adj = (1.0 - ticket.customer_sentiment) * 5.0
-        base += min(sentiment_adj, 8.0)
-        if ticket.previous_tickets_count > 10:
-            base += 3.0
-        return round(min(base, 100.0), 2)
-
-
-def _target_for(difficulty: str) -> float:
-    return {"easy": 0.85, "medium": 0.70, "hard": 0.50}[difficulty]
-
-
-def run_episode(
-    env_client: CustomerSupportEnvClient,
-    agent: HeuristicBaselineAgent,
-    llm_client: OpenAI,
-    difficulty: str,
-    seed: int,
-) -> dict:
-    task_name = f"customer_support_triage::{difficulty}"
-    benchmark_env_name = "openenv-customer-support"
-
-    # Ensure at least one proxy call per difficulty (safe and small)
-    _ = ping_llm(llm_client)
-
-    log_start(task=task_name, env=benchmark_env_name, model=MODEL_NAME or "unknown")
-
-    obs = env_client.reset(difficulty=difficulty, seed=seed)
-
-    rewards: list[float] = []
+    rewards: List[float] = []
     steps_taken = 0
-    error: str | None = None
+    last_error: Optional[str] = None
+
+    log_start(task=task, env=env_name, model=MODEL_NAME)
+    obs = env_client.reset(difficulty=difficulty, seed=seed)
 
     try:
         for step in range(1, MAX_STEPS_GUARD + 1):
             if obs.done:
                 break
-
             if obs.ticket_info is None:
-                error = "ticket_info_missing"
+                last_error = "ticket_info_missing"
                 break
 
-            action_obj = agent.act(obs.ticket_info)
+            action_obj = llm_choose_action(llm, obs.ticket_info, difficulty)
             obs = env_client.step(action_obj)
 
             reward = float(obs.reward or 0.0)
             rewards.append(reward)
             steps_taken = step
 
-            # action must be one-line string
             action_str = json.dumps(action_obj.model_dump(), ensure_ascii=True)
-
-            log_step(
-                step=step,
-                action=action_str,
-                reward=reward,
-                done=bool(obs.done),
-                error=error,
-            )
+            log_step(step=step, action=action_str, reward=reward, done=bool(obs.done), error=last_error)
 
             if obs.done:
                 break
 
     except Exception as exc:
-        error = f"{type(exc).__name__}:{exc}"
-        log_step(
-            step=max(steps_taken, 1),
-            action="exception",
-            reward=0.0,
-            done=True,
-            error=error,
-        )
+        last_error = f"{type(exc).__name__}:{exc}"
+        log_step(step=max(steps_taken, 1), action="exception", reward=0.00, done=True, error=last_error)
 
-    # Score in [0,1]
     stats = obs.episode_stats
-    score = float(stats.avg_correctness)
-    score = min(max(score, 0.0), 1.0)
+    avg_correctness = float(stats.avg_correctness)
+    target = {"easy": 0.85, "medium": 0.70, "hard": 0.50}[difficulty]
+    success = avg_correctness >= target
 
-    success = score >= _target_for(difficulty)
-
-    log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-
-    return {
-        "task": task_name,
-        "difficulty": difficulty,
-        "seed": seed,
-        "steps": steps_taken,
-        "score": round(score, 6),
-        "success": bool(success),
-        "rewards": rewards,
-        "total_reward": round(float(stats.total_reward), 6),
-        "avg_correctness": round(float(stats.avg_correctness), 6),
-        "avg_efficiency": round(float(stats.avg_efficiency), 6),
-        "correct_routes": int(stats.correct_routes),
-        "processed_tickets": int(stats.processed_tickets),
-        "total_tickets": int(stats.total_tickets),
-        "error": error,
-    }
-
+    log_end(success=success, steps=steps_taken, rewards=rewards)
 
 def main() -> None:
-    # Strict: use injected vars
-    llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
-    agent = HeuristicBaselineAgent()
+    llm = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
     env_client = CustomerSupportEnvClient(base_url=ENV_BASE_URL)
-
-    all_results: list[dict] = []
-    scores: dict[str, dict] = {}
-
     for d in DIFFICULTIES:
-        res = run_episode(
-            env_client=env_client,
-            agent=agent,
-            llm_client=llm_client,
-            difficulty=d,
-            seed=SEED,
-        )
-        all_results.append(res)
-        scores[d] = {"score": res["score"], "steps": res["steps"], "success": res["success"]}
-
-    OUTPUT_SCORES.write_text(json.dumps(scores, indent=2))
-    OUTPUT_RESULTS.write_text(json.dumps(all_results, indent=2))
-
+        run_one(env_client, llm, d, SEED)
 
 if __name__ == "__main__":
     main()
