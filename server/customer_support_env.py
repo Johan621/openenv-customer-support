@@ -116,9 +116,10 @@ class CustomerSupportEnv:
         This prevents any downstream JSON encoding/rounding from producing 0.0 or 1.0.
         """
         s = self._episode_stats.model_copy()
-        s.avg_correctness = round(clamp_open01(float(s.avg_correctness)), 6)
-        s.avg_efficiency = round(clamp_open01(float(s.avg_efficiency)), 6)
-        s.total_reward = round(clamp_open01(float(s.total_reward)), 6)
+        # FIXED:
+        s.avg_correctness = clamp_open01(round(float(s.avg_correctness), 6))
+        s.avg_efficiency  = clamp_open01(round(float(s.avg_efficiency),  6))
+        s.total_reward    = clamp_open01(round(float(s.total_reward),    6))
         return s
 
     def reset(self, difficulty: str = "easy", seed: Optional[int] = None) -> TriageObservation:
@@ -168,7 +169,7 @@ class CustomerSupportEnv:
                 "episode_count": self._episode_count,
                 "session_id": self.session_id,
                 # canonical score (validators should read this)
-                "task_score": round(clamp_open01(float(self._task_score)), 6),
+                "task_score": clamp_open01(round(float(self._task_score), 6)),
                 "message": "Episode started. Triage the first ticket.",
             },
         )
@@ -249,7 +250,7 @@ class CustomerSupportEnv:
                 "correct_route": gt.correct_route,
                 "correct_urgency": gt.correct_urgency,
                 # canonical score (validators should read this)
-                "task_score": round(clamp_open01(float(self._task_score)), 6),
+                "task_score": clamp_open01(round(float(self._task_score), 6)),
             },
         )
 
@@ -269,7 +270,7 @@ class CustomerSupportEnv:
             done=self._done,
             episode_stats=self._safe_episode_stats(),
             current_ticket=current_ticket,
-            task_score=round(clamp_open01(float(self._task_score)), 6),
+            task_score=clamp_open01(round(float(self._task_score), 6)),
         )
 
     def _compute_reward(
