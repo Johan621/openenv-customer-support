@@ -162,7 +162,7 @@ class CustomerSupportEnv:
         stats.avg_correctness = total_corr / processed
         stats.avg_efficiency = total_eff / processed
         stats.total_reward += reward
-        if was_correct:
+        if action.route_category == gt.correct_route:
             stats.correct_routes += 1
 
         # ---- Advance step ----
@@ -200,6 +200,8 @@ class CustomerSupportEnv:
             reward,
         )
 
+        # Clamp reward to [0, 1] (many evaluators expect this range)
+        reward = max(0.0, min(1.0, reward))
         return TriageObservation(
             ticket_info=next_ticket,
             correctness_score=round(correctness, 4),
