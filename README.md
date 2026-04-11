@@ -1,6 +1,6 @@
 ---
 title: Openenv Customer Support
-emoji: Ã°Å¸â€�Â¥
+emoji: "🎯"
 colorFrom: pink
 colorTo: red
 sdk: docker
