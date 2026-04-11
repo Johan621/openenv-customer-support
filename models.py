@@ -176,3 +176,11 @@ class EnvironmentState(BaseModel):
     done: bool
     episode_stats: EpisodeStats
     current_ticket: Optional[TicketData] = None
+
+    # NEW: canonical task score in (0,1)
+    task_score: float = Field(
+        EPS,
+        ge=0.0,
+        le=1.0,
+        description="Canonical task score for validators; must be strictly between 0 and 1.",
+    )
