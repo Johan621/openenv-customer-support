@@ -26,7 +26,7 @@ DIFFICULTIES = ["easy", "medium", "hard"]
 SEED = int(os.getenv("SEED", "42"))
 MAX_STEPS_GUARD = int(os.getenv("MAX_STEPS_GUARD", "200"))
 
-# Keep all printed "score-like" values strictly inside (0, 1)
+# Make sure anything score-like we PRINT is strictly in (0, 1)
 EPS = 1e-6
 
 
@@ -51,11 +51,9 @@ def log_start(task: str, env: str, model: str) -> None:
 
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    # IMPORTANT:
-    # - Never print reward as 0.00 or 1.00 due to rounding.
-    # - Print with enough precision and clamp to (0,1).
     err = error if error is not None else "null"
-    r = clamp_open01(float(reward))
+    # IMPORTANT: avoid formatting tiny values to 0.00
+    r = clamp_open01(reward)
     print(
         f"[STEP] step={step} action={action} reward={r:.6f} done={_bool(done)} error={err}",
         flush=True,
@@ -63,8 +61,8 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 
 def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    # Same: avoid 0.00 from formatting tiny EPS rewards
-    rewards_str = ",".join(f"{clamp_open01(float(r)):.6f}" for r in rewards)
+    # IMPORTANT: avoid 0.00 in end summary too
+    rewards_str = ",".join(f"{clamp_open01(r):.6f}" for r in rewards)
     print(f"[END] success={_bool(success)} steps={steps} rewards={rewards_str}", flush=True)
 
 
@@ -211,15 +209,11 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
             action_obj = llm_choose_action(llm, obs.ticket_info, difficulty)
             obs = env_client.step(action_obj)
 
-            reward = float(obs.reward or EPS)
+            reward = float(obs.reward) if obs.reward is not None else EPS
             rewards.append(reward)
             steps_taken = step
 
-            action_str = json.dumps(
-                action_obj.model_dump(),
-                ensure_ascii=True,
-                separators=(",", ":"),
-            )
+            action_str = json.dumps(action_obj.model_dump(), ensure_ascii=True, separators=(",", ":"))
             log_step(step=step, action=action_str, reward=reward, done=bool(obs.done), error=last_error)
 
             if obs.done:
@@ -227,9 +221,10 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
 
     except Exception as exc:
         last_error = f"{type(exc).__name__}:{exc}"
-        # Never log a 0.00 reward in exception path
+        # IMPORTANT: never print reward=0.00
         log_step(step=max(steps_taken, 1), action="exception", reward=EPS, done=True, error=last_error)
 
+    # success metric is not part of strict (0,1) constraint, but keep logic same
     stats = obs.episode_stats
     avg_correctness = float(stats.avg_correctness)
     target = {"easy": 0.85, "medium": 0.70, "hard": 0.50}[difficulty]
