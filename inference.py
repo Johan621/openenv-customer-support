@@ -57,6 +57,21 @@ def clamp_print_score(x: float) -> float:
         return PRINT_MAX
     return x
 
+SCORE_MIN = 0.01
+SCORE_MAX = 0.99
+
+def clamp_end_score(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return SCORE_MIN
+    if x != x or x == float("inf") or x == float("-inf"):
+        return SCORE_MIN
+    if x < SCORE_MIN:
+        return SCORE_MIN
+    if x > SCORE_MAX:
+        return SCORE_MAX
+    return x
 
 # -----------------------------------------------------------------------------
 # STRICT stdout logs (exact spec)
@@ -83,10 +98,13 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, rewards: List[float]) -> None:
-    # MUST be 2 decimals per hackathon spec
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{clamp_print_score(r):.2f}" for r in rewards)
-    print(f"[END] success={_bool(success)} steps={steps} rewards={rewards_str}", flush=True)
+    s = clamp_end_score(score)
+    print(
+        f"[END] success={_bool(success)} steps={steps} score={s:.2f} rewards={rewards_str}",
+        flush=True,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -251,9 +269,9 @@ def run_one(env_client: CustomerSupportEnvClient, llm: OpenAI, difficulty: str, 
     stats = obs.episode_stats
     avg_correctness = float(stats.avg_correctness)
     target = {"easy": 0.85, "medium": 0.70, "hard": 0.50}[difficulty]
-    success = avg_correctness >= target
-
-    log_end(success=success, steps=steps_taken, rewards=rewards)
+    score = clamp_end_score(avg_correctness)   # score must be strictly (0,1)
+    success = score >= target                  # success is separate
+    log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 def main() -> None:
