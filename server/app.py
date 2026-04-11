@@ -22,14 +22,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-# Force stdout/stderr buffering off for HF Spaces
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
 import uvicorn
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-
+from fastapi.responses import HTMLResponse, JSONResponse
 # Allow imports from repo root when running as server/app.py
 _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
@@ -124,7 +120,7 @@ async def reset_episode(request: ResetRequest = Body(default_factory=ResetReques
     """
     try:
         obs = get_default_env().reset(difficulty=request.difficulty, seed=request.seed)
-        return obs
+        return JSONResponse(content=obs.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -138,7 +134,7 @@ async def step_environment(request: StepRequest) -> TriageObservation:
     """
     try:
         obs = get_default_env().step(request.action)
-        return obs
+        return JSONResponse(content=obs.model_dump())
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
