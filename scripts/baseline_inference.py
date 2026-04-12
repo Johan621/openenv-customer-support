@@ -12,29 +12,27 @@ Usage:
     python scripts/baseline_inference.py --difficulties easy medium hard
     python scripts/baseline_inference.py --episodes 5 --seed 42
 
-Environment Variables:
-    ENV_BASE_URL  - environment server URL (default: http://localhost:8000)
-    OPENAI_API_KEY - optional, not required for baseline heuristic agent
+Notes:
+    - This baseline runs the environment locally (no server required).
+    - No API keys are required.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 # Allow running from repo root
 _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from models import TicketData, TriageAction
-from server.customer_support_env import CustomerSupportEnv
+from models import TicketData, TriageAction # noqa: E402
+from server.customer_support_env import CustomerSupportEnv # noqa: E402
 
 EPS = 1e-6
 
@@ -267,7 +265,8 @@ def run_evaluation(
             if verbose:
                 print(
                     f"  [{difficulty}] ep={ep} ticket={obs.metadata.get('processed_ticket_id','?')} "
-                    f"route={action.route_category} (want {obs.metadata.get('correct_route','?')}) "
+                    f"route={action.route_category} urgency={action.urgency_assessment} "
+                    f"difficulty={action.resolution_difficulty} priority={action.priority_score} "
                     f"correctness={clamp_open01(obs.correctness_score):.6f} reward={clamp_open01(obs.reward):.6f}"
                 )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from models import TicketData
