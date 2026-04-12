@@ -35,7 +35,11 @@ difficulty_levels:
     description: "15 tickets per episode, ambiguous categories, edge cases"
     target_score: 0.50
     tickets_per_episode: 15
-
+graders:
+  easy: server.graders.EasyGrader
+  medium: server.graders.MediumGrader
+  hard: server.graders.HardGrader
+  
 endpoints:
   http:
     reset: POST /reset
